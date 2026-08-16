@@ -130,7 +130,9 @@ export async function migrar() {
 
   for (const m of MIGRACOES) {
     if (jaAplicadas.has(m.versao)) continue;
-    await d.executarMultiplos(readFileSync(join(AQUI, m.arquivo), 'utf8'));
+    /* O nome do arquivo vai junto para que uma recusa do banco diga QUAL migration caiu. Sem
+     * isso, o erro que vem de um banco remoto é um 400 sem endereço. */
+    await d.executarMultiplos(readFileSync(join(AQUI, m.arquivo), 'utf8'), m.arquivo);
     await d.executar('INSERT INTO schema_migrations (versao, aplicada_em) VALUES (?, ?)', [
       m.versao,
       new Date().toISOString(),

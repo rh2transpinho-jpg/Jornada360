@@ -7,7 +7,16 @@
 -- As entidades espelham o domínio que já existia em src/domain/. Nenhuma tabela foi inventada:
 -- cada uma corresponde a um tipo que o frontend já usava.
 
-PRAGMA foreign_keys = ON;
+-- `PRAGMA foreign_keys = ON` NÃO mora aqui, e é de propósito.
+--
+-- Ele é uma configuração de CONEXÃO, não de schema: precisa ser ligado a cada conexão nova, e
+-- nunca ficou gravado neste arquivo de qualquer forma. Quem o liga é o driver local, em
+-- server/db/driverSqlite.js — e o banco remoto (libSQL/Turso) já aplica as chaves estrangeiras
+-- do lado do servidor.
+--
+-- Estava aqui e quebrava a publicação: sendo a primeira instrução do arquivo, o servidor do Turso
+-- respondia HTTP 400 e a migration inteira parava antes de criar a primeira tabela. O caminho
+-- local nunca acusou porque o SQLite embutido aceita o PRAGMA sem reclamar.
 
 -- ---------------------------------------------------------------- contas e acesso
 

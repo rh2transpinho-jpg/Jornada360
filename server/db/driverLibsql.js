@@ -28,6 +28,47 @@ function args(params) {
   return params.map((v) => (v === undefined ? null : v));
 }
 
+/* Divide um script SQL em instruções.
+ *
+ * Só precisa dar conta do que existe em server/db/*.sql: comentários de linha (`--`) e literais
+ * entre aspas simples nos DEFAULT. Nenhuma migration tem TRIGGER, e é isso que torna a divisão
+ * por `;` segura — um bloco `BEGIN...END` de trigger quebraria esta função, e quem acrescentar um
+ * precisa voltar aqui. */
+function separarInstrucoes(sql) {
+  const instrucoes = [];
+  let atual = '';
+  let dentroDeTexto = false;
+  let dentroDeComentario = false;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const c = sql[i];
+
+    if (dentroDeComentario) {
+      if (c === '\n') dentroDeComentario = false;
+      continue;
+    }
+
+    if (!dentroDeTexto && c === '-' && sql[i + 1] === '-') {
+      dentroDeComentario = true;
+      i += 1;
+      continue;
+    }
+
+    if (c === "'") dentroDeTexto = !dentroDeTexto;
+
+    if (c === ';' && !dentroDeTexto) {
+      if (atual.trim()) instrucoes.push(atual.trim());
+      atual = '';
+      continue;
+    }
+
+    atual += c;
+  }
+
+  if (atual.trim()) instrucoes.push(atual.trim());
+  return instrucoes;
+}
+
 export function criarDriverLibsql({ url, token }) {
   const cliente = createClient({ url, authToken: token });
 
@@ -51,8 +92,35 @@ export function criarDriverLibsql({ url, token }) {
         return { alteradas: Number(r.rowsAffected ?? 0) };
       },
 
-      async executarMultiplos(sql) {
-        await executor.executeMultiple(sql);
+      /* Script de várias instruções, executado UMA A UMA — e não via `executeMultiple`.
+       *
+       * A razão é diagnóstico. Quando o servidor recusa uma instrução, `executeMultiple` devolve
+       * um `HTTP 400` sobre o script inteiro: sem arquivo, sem linha, sem SQL. Foi exatamente o
+       * que travou a primeira publicação, e descobrir a causa exigiu ler o schema à mão.
+       *
+       * Executando uma a uma, o erro diz qual instrução caiu. O SQL das migrations é só DDL —
+       * `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE` — então registrar um trecho dele não expõe
+       * dado de cliente, senha nem token. */
+      async executarMultiplos(sql, rotulo = 'script') {
+        const instrucoes = separarInstrucoes(sql);
+
+        for (let i = 0; i < instrucoes.length; i += 1) {
+          const instrucao = instrucoes[i];
+
+          /* PRAGMA é configuração de CONEXÃO e o servidor remoto a recusa. As chaves estrangeiras
+           * já são aplicadas do lado dele; o driver local liga a sua no próprio construtor. */
+          if (/^\s*PRAGMA\b/i.test(instrucao)) continue;
+
+          try {
+            await executor.execute(instrucao);
+          } catch (e) {
+            const trecho = instrucao.replace(/\s+/g, ' ').slice(0, 120);
+            throw new Error(
+              `${rotulo}: instrução ${i + 1} de ${instrucoes.length} recusada pelo banco — ${e.message}\n  SQL: ${trecho}`,
+              { cause: e },
+            );
+          }
+        }
       },
 
       /* Transação interativa de verdade — o libSQL suporta, ao contrário de alguns bancos

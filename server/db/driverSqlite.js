@@ -46,8 +46,12 @@ export function criarDriverSqlite(caminho) {
     },
 
     /** Script com várias instruções — usado só pelas migrations. */
-    async executarMultiplos(sql) {
-      db.exec(sql);
+    async executarMultiplos(sql, rotulo = 'script') {
+      try {
+        db.exec(sql);
+      } catch (e) {
+        throw new Error(`${rotulo}: ${e.message}`, { cause: e });
+      }
     },
 
     /* Transação real. Existe para que criar uma empresa (tenant + company + regras + integrações
