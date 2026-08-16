@@ -22,7 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-data/
+# O banco SQLite fica em /data na RAIZ. A barra inicial é obrigatória: sem ela, o git ignora
+# qualquer pasta chamada `data` em qualquer nível — e foi o que aconteceu com `src/data/`, que
+# sumiu do repositório sem aviso. O build local continuou passando porque os arquivos existem no
+# disco; quem quebrou foi o build do servidor, que só tem o que está versionado.
+/data/
 .env
 server/__*.db*
 
