@@ -23,7 +23,8 @@
     "start": "node server/index.js",
     "piloto": "node scripts/piloto.js",
     "exportar": "node scripts/exportar.js",
-    "importar": "node scripts/importar-banco.js"
+    "importar": "node scripts/importar-banco.js",
+    "diagnostico-turso": "node scripts/diagnostico-turso.js"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
