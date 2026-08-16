@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { authRouter } from './routes/auth.js';
 import { tenantRouter } from './routes/tenant.js';
 import { autenticar, resolverTenant, tratarErros } from './middlewares/index.js';
-import { migrar, abrirBanco, caminhoBanco } from './db/index.js';
+import { garantirMigrado, consultarUm, caminhoBanco, modoBanco } from './db/index.js';
 import { carregarConfig } from './config.js';
 import { log, registrarRequisicoes } from './lib/log.js';
 import { listarBackups } from './lib/backup.js';
@@ -31,9 +31,18 @@ function pastaDoFrontend(config) {
 
 export function criarApp(configExterna) {
   const config = configExterna ?? carregarConfig();
-  migrar();
 
   const app = express();
+
+  /* A migração agora é assíncrona (o banco pode estar do outro lado da rede) e `criarApp` não pode
+   * esperar por ela. Este middleware segura a PRIMEIRA requisição até o schema existir.
+   *
+   * Não é detalhe: em hospedagem gratuita o serviço hiberna e acorda já com gente batendo na
+   * porta. Sem esta trava, a requisição que acorda o serviço consultaria uma tabela ainda não
+   * criada e o cliente veria um erro no exato momento em que o sistema estava subindo. */
+  app.use((_req, _res, proximo) => {
+    garantirMigrado().then(() => proximo(), proximo);
+  });
 
   /* Atrás de um proxy reverso, `req.ip` é o IP do proxy — o que faria o limite de tentativas
    * tratar todo mundo como a mesma pessoa. Só é ligado por configuração explícita: confiar no
@@ -93,8 +102,12 @@ export function criarApp(configExterna) {
     const relatorio = { ok: true, verificado_em: new Date().toISOString(), componentes: {} };
 
     try {
-      abrirBanco().prepare('SELECT 1 AS ok').get();
-      relatorio.componentes.banco = { ok: true, caminho: config.producao ? '(oculto)' : caminhoBanco() };
+      await consultarUm('SELECT 1 AS ok');
+      relatorio.componentes.banco = {
+        ok: true,
+        modo: modoBanco(),
+        caminho: config.producao || modoBanco() === 'libsql' ? '(oculto)' : caminhoBanco(),
+      };
     } catch (e) {
       relatorio.ok = false;
       relatorio.componentes.banco = { ok: false, erro: e.message };
@@ -106,7 +119,16 @@ export function criarApp(configExterna) {
      * Marcar como não-pronto faria um orquestrador reiniciar o processo sem necessidade. */
     if (!email.ok) relatorio.componentes.email.observacao = 'Recuperação de senha e convites não funcionarão.';
 
-    if (config.backup.diretorio) {
+    /* Com o banco remoto não há arquivo local para copiar: o backup de lá é a exportação
+     * (`npm run exportar`) mais o point-in-time restore do próprio provedor. Cobrar um backup em
+     * disco aqui marcaria como "não pronto" um sistema que está perfeitamente protegido. */
+    if (modoBanco() === 'libsql') {
+      relatorio.componentes.backup = {
+        ok: true,
+        modo: 'remoto',
+        observacao: 'Banco gerenciado: exportar com `npm run exportar`. Ver DEPLOY_GRATUITO.md.',
+      };
+    } else if (config.backup.diretorio) {
       const backups = listarBackups(config);
       const ultimo = backups[0];
       const horasDesde = ultimo ? (Date.now() - new Date(ultimo.em).getTime()) / 3600_000 : null;

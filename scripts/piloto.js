@@ -27,7 +27,7 @@ import * as usuarios from '../server/repositories/userRepository.js';
 import * as convites from '../server/repositories/conviteRepository.js';
 import { migrar, fecharBanco } from '../server/db/index.js';
 
-migrar();
+await migrar();
 
 const [comando = 'panorama', ...args] = process.argv.slice(2);
 
@@ -48,8 +48,8 @@ function descreverAtividade(ultima) {
   return `${C.vermelho}há ${d} dias${C.reset}`;
 }
 
-function acharEmpresa(idOuNome) {
-  const todas = piloto.panorama();
+async function acharEmpresa(idOuNome) {
+  const todas = await piloto.panorama();
   const porId = todas.find((t) => t.id === idOuNome);
   if (porId) return porId;
 
@@ -68,8 +68,8 @@ function acharEmpresa(idOuNome) {
 
 /* ---------------------------------------------------------------- panorama */
 
-function panorama() {
-  const lista = piloto.panorama().filter((t) => t.environment !== 'demo');
+async function panorama() {
+  const lista = (await piloto.panorama()).filter((t) => t.environment !== 'demo');
 
   if (lista.length === 0) {
     console.log('\nNenhuma empresa no piloto ainda.');
@@ -112,7 +112,7 @@ function panorama() {
     console.log('');
   }
 
-  const resumo = piloto.resumoFeedback();
+  const resumo = await piloto.resumoFeedback();
   if (resumo.length > 0) {
     console.log(`${C.negrito}Feedback recebido${C.reset}`);
     for (const r of resumo) {
@@ -134,7 +134,7 @@ async function liberar() {
     return;
   }
 
-  if (usuarios.buscarPorEmail(email)) {
+  if (await usuarios.buscarPorEmail(email)) {
     console.error(`\n✗ Já existe uma conta com ${email}.`);
     console.error('  Para dar acesso a outra empresa, use:  npm run piloto convidar <id-da-empresa> ' + email + '\n');
     process.exitCode = 1;
@@ -145,8 +145,8 @@ async function liberar() {
    * sistema tem recuperação de senha por e-mail, ela nunca fica presa a esta senha. */
   const senhaInicial = randomBytes(9).toString('base64url');
 
-  const usuario = usuarios.criarUsuario({ email, nome: email.split('@')[0], senha: senhaInicial });
-  const tenant = tenants.criarTenant({ nome: nomeEmpresa, criadoPorUserId: usuario.id, papel: 'administrador' });
+  const usuario = await usuarios.criarUsuario({ email, nome: email.split('@')[0], senha: senhaInicial });
+  const tenant = await tenants.criarTenant({ nome: nomeEmpresa, criadoPorUserId: usuario.id, papel: 'administrador' });
 
   console.log(`\n${C.verde}✓ Empresa liberada para o piloto${C.reset}\n`);
   console.log(`  Empresa:        ${tenant.nome}`);
@@ -160,7 +160,7 @@ async function liberar() {
 
 /* ---------------------------------------------------------------- convidar */
 
-function convidar() {
+async function convidar() {
   const [idOuNome, email, papel = 'administrador'] = args;
   if (!idOuNome || !email) {
     console.error('\nUso: npm run piloto convidar <id-ou-nome-da-empresa> <email> [papel]\n');
@@ -168,13 +168,13 @@ function convidar() {
     return;
   }
 
-  const empresa = acharEmpresa(idOuNome);
+  const empresa = await acharEmpresa(idOuNome);
   if (!empresa) {
     process.exitCode = 1;
     return;
   }
 
-  const convite = convites.criarConvite(empresa.id, { email, papel, criadoPor: null });
+  const convite = await convites.criarConvite(empresa.id, { email, papel, criadoPor: null });
   console.log(`\n${C.verde}✓ Convite gerado para ${empresa.nome}${C.reset}\n`);
   console.log(`  Para:    ${convite.email}  (${papel})`);
   console.log(`  Válido até: ${String(convite.expiraEm).slice(0, 10)}`);
@@ -194,7 +194,7 @@ async function suspender() {
     return;
   }
 
-  const empresa = acharEmpresa(idOuNome);
+  const empresa = await acharEmpresa(idOuNome);
   if (!empresa) {
     process.exitCode = 1;
     return;
@@ -217,11 +217,11 @@ async function suspender() {
     return;
   }
 
-  piloto.suspender(empresa.id, motivo.join(' ') || null);
+  await piloto.suspender(empresa.id, motivo.join(' ') || null);
   console.log(`\n${C.verde}✓ Acesso suspenso.${C.reset} Os dados continuam no banco e entram nos backups normalmente.\n`);
 }
 
-function reativar() {
+async function reativar() {
   const [idOuNome] = args;
   if (!idOuNome) {
     console.error('\nUso: npm run piloto reativar <id-ou-nome>\n');
@@ -229,36 +229,36 @@ function reativar() {
     return;
   }
 
-  const empresa = acharEmpresa(idOuNome);
+  const empresa = await acharEmpresa(idOuNome);
   if (!empresa) {
     process.exitCode = 1;
     return;
   }
 
-  piloto.reativar(empresa.id);
+  await piloto.reativar(empresa.id);
   console.log(`\n${C.verde}✓ ${empresa.nome} reativada.${C.reset}`);
   console.log(`  Os usuários precisam entrar de novo (as sessões foram encerradas na suspensão).\n`);
 }
 
-function anotar() {
+async function anotar() {
   const [idOuNome, ...texto] = args;
   if (!idOuNome || texto.length === 0) {
     console.error('\nUso: npm run piloto nota <id-ou-nome> <texto>\n');
     process.exitCode = 1;
     return;
   }
-  const empresa = acharEmpresa(idOuNome);
+  const empresa = await acharEmpresa(idOuNome);
   if (!empresa) {
     process.exitCode = 1;
     return;
   }
-  piloto.anotar(empresa.id, texto.join(' '));
+  await piloto.anotar(empresa.id, texto.join(' '));
   console.log(`\n✓ Nota registrada para ${empresa.nome}.\n`);
 }
 
 /* ---------------------------------------------------------------- feedback */
 
-function verFeedback() {
+async function verFeedback() {
   const [situacao] = args;
   if (situacao && !piloto.SITUACOES_FEEDBACK.includes(situacao)) {
     console.error(`\nSituação inválida. Use: ${piloto.SITUACOES_FEEDBACK.join(' | ')}\n`);
@@ -266,7 +266,7 @@ function verFeedback() {
     return;
   }
 
-  const lista = piloto.listarTodoFeedback({ situacao });
+  const lista = await piloto.listarTodoFeedback({ situacao });
   if (lista.length === 0) {
     console.log(`\nNenhum feedback${situacao ? ` com situação "${situacao}"` : ''}.\n`);
     return;
@@ -284,14 +284,14 @@ function verFeedback() {
   console.log(`${C.cinza}Marcar: npm run piloto feedback-marcar <id> <${piloto.SITUACOES_FEEDBACK.join('|')}> [nota]${C.reset}\n`);
 }
 
-function marcarFeedback() {
+async function marcarFeedback() {
   const [id, situacao, ...nota] = args;
   if (!id || !piloto.SITUACOES_FEEDBACK.includes(situacao)) {
     console.error(`\nUso: npm run piloto feedback-marcar <id> <${piloto.SITUACOES_FEEDBACK.join('|')}> [nota]\n`);
     process.exitCode = 1;
     return;
   }
-  piloto.atualizarSituacaoFeedback(id, situacao, nota.join(' ') || null);
+  await piloto.atualizarSituacaoFeedback(id, situacao, nota.join(' ') || null);
   console.log(`\n✓ Feedback ${id} marcado como "${situacao}".\n`);
 }
 
@@ -318,4 +318,4 @@ if (!executar) {
   await executar();
 }
 
-fecharBanco();
+await fecharBanco();

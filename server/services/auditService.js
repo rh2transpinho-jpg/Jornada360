@@ -9,9 +9,12 @@
  * o sistema ficaria inoperante por causa do log. O erro vai para o log do servidor. */
 import { registrarAuditoria } from '../repositories/operacaoRepository.js';
 
-export function auditar(req, { entidade, acao, valorAnterior, valorNovo, motivo }) {
+/* `async` porque a gravação passou a ser assíncrona. Quem chama normalmente NÃO espera: a trilha
+ * não pode atrasar a resposta da operação que ela descreve. O `catch` embutido garante que uma
+ * promessa rejeitada aqui não vire erro não tratado no processo. */
+export async function auditar(req, { entidade, acao, valorAnterior, valorNovo, motivo }) {
   try {
-    return registrarAuditoria(req.tenantId, {
+    return await registrarAuditoria(req.tenantId, {
       userId: req.usuario.id,
       usuario: req.usuario.nome,
       entidade,

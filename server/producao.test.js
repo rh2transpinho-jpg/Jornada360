@@ -113,9 +113,9 @@ describe('backup', () => {
     dadosCriados = true;
   });
 
-  it('gera um arquivo e o VERIFICA lendo de volta', () => {
+  it('gera um arquivo e o VERIFICA lendo de volta', async () => {
     expect(dadosCriados).toBe(true);
-    const r = gerarBackup(configTeste(), { rotulo: 'teste' });
+    const r = await gerarBackup(configTeste(), { rotulo: 'teste' });
     expect(r.ok).toBe(true);
     expect(existsSync(r.caminho)).toBe(true);
     /* A contagem vem de uma leitura do arquivo gerado, não do banco de origem. */
@@ -125,18 +125,18 @@ describe('backup', () => {
   });
 
   it('o backup contém o dado que existia no momento em que foi tirado', async () => {
-    const antes = gerarBackup(configTeste(), { rotulo: 'antes' });
+    const antes = await gerarBackup(configTeste(), { rotulo: 'antes' });
     await req('POST', '/api/auth/registrar', {
       corpo: { email: 'depois@prod.test', nome: 'Depois', senha: 'senha-forte-d1', nomeEmpresa: 'Depois do Backup' },
     });
-    const depois = gerarBackup(configTeste(), { rotulo: 'depois' });
+    const depois = await gerarBackup(configTeste(), { rotulo: 'depois' });
 
     expect(depois.contagens.users).toBe(antes.contagens.users + 1);
   });
 
   /* Um arquivo que não abre não é backup — e deixá-lo em disco criaria a impressão de que existe
    * uma cópia. */
-  it('recusa e DESCARTA um arquivo que não é um banco válido', () => {
+  it('recusa e DESCARTA um arquivo que não é um banco válido', async () => {
     const falso = join(BACKUPS, 'jornada360-corrompido-2020-01-01T00-00-00.db');
     writeFileSync(falso, 'isto não é um banco de dados');
 
@@ -145,14 +145,14 @@ describe('backup', () => {
     rmSync(falso);
   });
 
-  it('lista os backups do mais novo para o mais antigo', () => {
+  it('lista os backups do mais novo para o mais antigo', async () => {
     const lista = listarBackups(configTeste());
     expect(lista.length).toBeGreaterThan(1);
     expect(lista[0].em >= lista[1].em).toBe(true);
   });
 
   /* Uma retenção mal configurada não pode ser o que deixa o sistema sem nenhuma cópia. */
-  it('a limpeza NUNCA remove o backup mais recente', () => {
+  it('a limpeza NUNCA remove o backup mais recente', async () => {
     const config = { ...configTeste(), backup: { diretorio: BACKUPS, manterDias: -1, intervaloHoras: 0 } };
     limparAntigos(config);
     expect(listarBackups(config).length).toBeGreaterThanOrEqual(1);
@@ -162,8 +162,8 @@ describe('backup', () => {
 /* ---------------------------------------------------------------- restauração */
 
 describe('restauração — o teste que transforma backup em garantia', () => {
-  it('restaura num destino isolado e o banco restaurado abre e responde', () => {
-    const backup = gerarBackup(configTeste(), { rotulo: 'para-restaurar' });
+  it('restaura num destino isolado e o banco restaurado abre e responde', async () => {
+    const backup = await gerarBackup(configTeste(), { rotulo: 'para-restaurar' });
     expect(backup.ok).toBe(true);
 
     const destino = join(RAIZ, 'restaurado.db');
@@ -175,12 +175,12 @@ describe('restauração — o teste que transforma backup em garantia', () => {
     expect(r.contagens.tenants).toBe(backup.contagens.tenants);
   });
 
-  it('recusa restaurar um arquivo inválido SEM tocar no banco de destino', () => {
+  it('recusa restaurar um arquivo inválido SEM tocar no banco de destino', async () => {
     const falso = join(RAIZ, 'invalido.db');
     writeFileSync(falso, 'lixo');
 
     const destino = join(RAIZ, 'destino-preservado.db');
-    const backup = gerarBackup(configTeste(), { rotulo: 'bom' });
+    const backup = await gerarBackup(configTeste(), { rotulo: 'bom' });
     restaurarBackup(backup.caminho, { destino });
     const antes = verificarBackup(destino);
 
@@ -194,9 +194,9 @@ describe('restauração — o teste que transforma backup em garantia', () => {
     expect(depois.contagens).toEqual(antes.contagens);
   });
 
-  it('guarda o banco anterior antes de sobrescrever, para haver caminho de volta', () => {
+  it('guarda o banco anterior antes de sobrescrever, para haver caminho de volta', async () => {
     const destino = join(RAIZ, 'com-seguranca.db');
-    const backup = gerarBackup(configTeste(), { rotulo: 'seguranca' });
+    const backup = await gerarBackup(configTeste(), { rotulo: 'seguranca' });
 
     restaurarBackup(backup.caminho, { destino });
     const segunda = restaurarBackup(backup.caminho, { destino });
@@ -251,11 +251,11 @@ describe('recuperação de senha', () => {
     const { criarPedido } = await import('./repositories/recuperacaoRepository.js');
     const usuarios = await import('./repositories/userRepository.js');
 
-    const u = usuarios.buscarPorEmail(conta.email);
-    const sessaoAntiga = usuarios.criarSessao(u.id);
+    const u = await usuarios.buscarPorEmail(conta.email);
+    const sessaoAntiga = await usuarios.criarSessao(u.id);
     expect((await req('GET', '/api/auth/eu', { token: sessaoAntiga.token })).status).toBe(200);
 
-    const { token } = criarPedido(u.id, '127.0.0.1');
+    const { token } = await criarPedido(u.id, '127.0.0.1');
 
     expect((await req('GET', `/api/auth/recuperar/${token}`)).status).toBe(200);
 
@@ -277,10 +277,10 @@ describe('recuperação de senha', () => {
   it('um pedido novo invalida o anterior — só o link mais recente vale', async () => {
     const { criarPedido } = await import('./repositories/recuperacaoRepository.js');
     const usuarios = await import('./repositories/userRepository.js');
-    const u = usuarios.buscarPorEmail(conta.email);
+    const u = await usuarios.buscarPorEmail(conta.email);
 
-    const primeiro = criarPedido(u.id, '127.0.0.1');
-    const segundo = criarPedido(u.id, '127.0.0.1');
+    const primeiro = await criarPedido(u.id, '127.0.0.1');
+    const segundo = await criarPedido(u.id, '127.0.0.1');
 
     expect((await req('GET', `/api/auth/recuperar/${primeiro.token}`)).status).toBe(400);
     expect((await req('GET', `/api/auth/recuperar/${segundo.token}`)).status).toBe(200);

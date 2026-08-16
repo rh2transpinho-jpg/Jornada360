@@ -82,7 +82,7 @@ describe('suspender uma empresa bloqueia o acesso sem tocar nos dados', () => {
     const antes = await req('GET', `/api/tenants/${tenantId}/setores`, { token });
     expect(antes.corpo.map((s) => s.nome).sort()).toEqual(['Manutenção', 'Operacional']);
 
-    piloto.suspender(tenantId, 'Piloto encerrado');
+    await piloto.suspender(tenantId, 'Piloto encerrado');
 
     /* A sessão antiga morre junto com a suspensão. Sem isso, quem já estava dentro continuaria
      * trabalhando até o token expirar — a suspensão só valeria horas depois. */
@@ -110,7 +110,7 @@ describe('suspender uma empresa bloqueia o acesso sem tocar nos dados', () => {
     });
     expect(escritaBloqueada.status).toBe(403);
 
-    piloto.reativar(tenantId);
+    await piloto.reativar(tenantId);
 
     const login3 = await req('POST', '/api/auth/entrar', {
       corpo: { email: 'suspensao@piloto.test', senha: 'senha-forte-p1' },
@@ -123,7 +123,7 @@ describe('suspender uma empresa bloqueia o acesso sem tocar nos dados', () => {
 
   it('continua listando a empresa suspensa em /auth/eu, marcada como suspensa', async () => {
     const { tenantId } = await novaEmpresa('listagem');
-    piloto.suspender(tenantId, null);
+    await piloto.suspender(tenantId, null);
 
     const login = await req('POST', '/api/auth/entrar', {
       corpo: { email: 'listagem@piloto.test', senha: 'senha-forte-p1' },
@@ -136,19 +136,19 @@ describe('suspender uma empresa bloqueia o acesso sem tocar nos dados', () => {
     expect(empresa).toBeDefined();
     expect(empresa.status).toBe('suspensa');
 
-    piloto.reativar(tenantId);
+    await piloto.reativar(tenantId);
   });
 
   it('não afeta as outras empresas', async () => {
     const a = await novaEmpresa('vizinha-a');
     const b = await novaEmpresa('vizinha-b');
 
-    piloto.suspender(a.tenantId, 'teste');
+    await piloto.suspender(a.tenantId, 'teste');
 
     const outra = await req('GET', `/api/tenants/${b.tenantId}/setores`, { token: b.token });
     expect(outra.status).toBe(200);
 
-    piloto.reativar(a.tenantId);
+    await piloto.reativar(a.tenantId);
   });
 });
 
@@ -268,7 +268,7 @@ describe('feedback do piloto', () => {
   it('o painel do operador enxerga o feedback de todas as empresas', async () => {
     /* A visão cruzada existe só aqui, fora do HTTP. Uma rota que devolvesse o feedback de todo
      * mundo seria uma porta permanente para o teste de isolamento acima falhar um dia. */
-    const todos = piloto.listarTodoFeedback({});
+    const todos = await piloto.listarTodoFeedback({});
     expect(todos.length).toBeGreaterThanOrEqual(2);
     expect(new Set(todos.map((f) => f.tenantId)).size).toBeGreaterThanOrEqual(2);
   });
@@ -279,9 +279,9 @@ describe('feedback do piloto', () => {
 describe('panorama de acompanhamento', () => {
   it('mostra uso por empresa e marca as suspensas', async () => {
     const { tenantId } = await novaEmpresa('panorama');
-    piloto.suspender(tenantId, 'em análise');
+    await piloto.suspender(tenantId, 'em análise');
 
-    const linhas = piloto.panorama();
+    const linhas = await piloto.panorama();
     const linha = linhas.find((l) => l.id === tenantId);
 
     expect(linha).toBeDefined();
@@ -291,6 +291,6 @@ describe('panorama de acompanhamento', () => {
      * e acompanhar a implantação é justamente o que o operador precisa fazer toda semana. */
     expect(linha).toHaveProperty('ultimaAtividade');
 
-    piloto.reativar(tenantId);
+    await piloto.reativar(tenantId);
   });
 });

@@ -4,7 +4,7 @@
  * SUSPENDER NÃO É EXCLUIR. Suspender bloqueia o acesso e preserva tudo; excluir apaga em cascata e
  * não tem volta. Numa cobrança controlada à mão, suspender é a única ação aceitável enquanto a
  * conversa com o cliente estiver aberta — e é reversível com um comando. */
-import { abrirBanco } from '../db/index.js';
+import { consultar, consultarUm, executar } from '../db/index.js';
 import { novoId } from '../lib/seguranca.js';
 
 export const CATEGORIAS_FEEDBACK = ['erro', 'dificuldade', 'sugestao', 'funcionalidade', 'duvida'];
@@ -21,32 +21,31 @@ export const ROTULO_CATEGORIA = {
 /* ---------------------------------------------------------------- acesso das empresas */
 
 export function situacaoTenant(tenantId) {
-  const r = abrirBanco()
-    .prepare('SELECT status, suspensa_em AS suspensaEm, motivo_suspensao AS motivo FROM tenants WHERE id = ?')
-    .get(tenantId);
-  return r ?? null;
+  return consultarUm(
+    'SELECT status, suspensa_em AS suspensaEm, motivo_suspensao AS motivo FROM tenants WHERE id = ?',
+    [tenantId],
+  );
 }
 
-export function suspender(tenantId, motivo) {
-  const db = abrirBanco();
-  db.prepare('UPDATE tenants SET status = ?, suspensa_em = ?, motivo_suspensao = ? WHERE id = ?')
-    .run('suspensa', new Date().toISOString(), motivo ?? null, tenantId);
+export async function suspender(tenantId, motivo) {
+  await executar('UPDATE tenants SET status = ?, suspensa_em = ?, motivo_suspensao = ? WHERE id = ?',
+    ['suspensa', new Date().toISOString(), motivo ?? null, tenantId]);
 
   /* As sessões abertas dos membros são encerradas: sem isso, quem já estava dentro continuaria
    * trabalhando até o cookie vencer, e a suspensão só valeria de fato horas depois. */
-  db.prepare(
-    `DELETE FROM sessions WHERE user_id IN (SELECT user_id FROM memberships WHERE tenant_id = ?)`,
-  ).run(tenantId);
+  await executar(
+    'DELETE FROM sessions WHERE user_id IN (SELECT user_id FROM memberships WHERE tenant_id = ?)',
+    [tenantId],
+  );
 }
 
-export function reativar(tenantId) {
-  abrirBanco()
-    .prepare('UPDATE tenants SET status = ?, suspensa_em = NULL, motivo_suspensao = NULL WHERE id = ?')
-    .run('ativa', tenantId);
+export async function reativar(tenantId) {
+  await executar('UPDATE tenants SET status = ?, suspensa_em = NULL, motivo_suspensao = NULL WHERE id = ?',
+    ['ativa', tenantId]);
 }
 
-export function anotar(tenantId, nota) {
-  abrirBanco().prepare('UPDATE tenants SET nota_piloto = ? WHERE id = ?').run(nota, tenantId);
+export async function anotar(tenantId, nota) {
+  await executar('UPDATE tenants SET nota_piloto = ? WHERE id = ?', [nota, tenantId]);
 }
 
 /* Panorama de cada empresa: cadastro, volume e ATIVIDADE.
@@ -56,29 +55,26 @@ export function anotar(tenantId, nota) {
  * de uma que importou dados uma vez e nunca mais voltou. É a diferença entre "tem dados" e "está
  * usando", que é justamente o que um piloto precisa saber. */
 export function panorama() {
-  const db = abrirBanco();
-  return db
-    .prepare(
-      `SELECT
-         t.id, t.nome, t.environment, t.status, t.criado_em AS criadoEm,
-         t.suspensa_em AS suspensaEm, t.motivo_suspensao AS motivoSuspensao, t.nota_piloto AS notaPiloto,
-         (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id)   AS usuarios,
-         (SELECT COUNT(*) FROM employees e   WHERE e.tenant_id = t.id)   AS colaboradores,
-         (SELECT COUNT(*) FROM time_records r WHERE r.tenant_id = t.id)  AS dias,
-         (SELECT COUNT(*) FROM pendings p    WHERE p.tenant_id = t.id)   AS pendencias,
-         (SELECT COUNT(*) FROM pendings p    WHERE p.tenant_id = t.id
-            AND p.status IN ('justificado','aprovado','reprovado'))      AS pendenciasResolvidas,
-         (SELECT MAX(a.timestamp) FROM audit_log a WHERE a.tenant_id = t.id) AS ultimaAtividade,
-         (SELECT COUNT(*) FROM feedback f WHERE f.tenant_id = t.id AND f.situacao = 'aberto') AS feedbackAberto
-       FROM tenants t
-       ORDER BY t.criado_em`,
-    )
-    .all();
+  return consultar(
+    `SELECT
+       t.id, t.nome, t.environment, t.status, t.criado_em AS criadoEm,
+       t.suspensa_em AS suspensaEm, t.motivo_suspensao AS motivoSuspensao, t.nota_piloto AS notaPiloto,
+       (SELECT COUNT(*) FROM memberships m WHERE m.tenant_id = t.id)   AS usuarios,
+       (SELECT COUNT(*) FROM employees e   WHERE e.tenant_id = t.id)   AS colaboradores,
+       (SELECT COUNT(*) FROM time_records r WHERE r.tenant_id = t.id)  AS dias,
+       (SELECT COUNT(*) FROM pendings p    WHERE p.tenant_id = t.id)   AS pendencias,
+       (SELECT COUNT(*) FROM pendings p    WHERE p.tenant_id = t.id
+          AND p.status IN ('justificado','aprovado','reprovado'))      AS pendenciasResolvidas,
+       (SELECT MAX(a.timestamp) FROM audit_log a WHERE a.tenant_id = t.id) AS ultimaAtividade,
+       (SELECT COUNT(*) FROM feedback f WHERE f.tenant_id = t.id AND f.situacao = 'aberto') AS feedbackAberto
+     FROM tenants t
+     ORDER BY t.criado_em`,
+  );
 }
 
 /* ---------------------------------------------------------------- feedback */
 
-export function registrarFeedback(tenantId, { userId, usuario, categoria, mensagem, tela }) {
+export async function registrarFeedback(tenantId, { userId, usuario, categoria, mensagem, tela }) {
   const entrada = {
     id: novoId('fbk'),
     categoria,
@@ -87,12 +83,11 @@ export function registrarFeedback(tenantId, { userId, usuario, categoria, mensag
     criadoEm: new Date().toISOString(),
   };
 
-  abrirBanco()
-    .prepare(
-      `INSERT INTO feedback (id, tenant_id, user_id, usuario, categoria, mensagem, tela, criado_em, situacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'aberto')`,
-    )
-    .run(entrada.id, tenantId, userId ?? null, usuario, entrada.categoria, entrada.mensagem, entrada.tela, entrada.criadoEm);
+  await executar(
+    `INSERT INTO feedback (id, tenant_id, user_id, usuario, categoria, mensagem, tela, criado_em, situacao)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'aberto')`,
+    [entrada.id, tenantId, userId ?? null, usuario, entrada.categoria, entrada.mensagem, entrada.tela, entrada.criadoEm],
+  );
 
   return entrada;
 }
@@ -100,12 +95,11 @@ export function registrarFeedback(tenantId, { userId, usuario, categoria, mensag
 /* O que a própria empresa mandou. Cada uma vê só o seu — é dado dela, sujeito às mesmas regras de
  * isolamento de todo o resto. */
 export function listarFeedbackDaEmpresa(tenantId) {
-  return abrirBanco()
-    .prepare(
-      `SELECT id, usuario, categoria, mensagem, tela, criado_em AS criadoEm, situacao
-       FROM feedback WHERE tenant_id = ? ORDER BY criado_em DESC`,
-    )
-    .all(tenantId);
+  return consultar(
+    `SELECT id, usuario, categoria, mensagem, tela, criado_em AS criadoEm, situacao
+     FROM feedback WHERE tenant_id = ? ORDER BY criado_em DESC`,
+    [tenantId],
+  );
 }
 
 /* Visão do operador do piloto, atravessando empresas. Só é alcançável pela CLI, que roda no
@@ -124,33 +118,29 @@ export function listarTodoFeedback({ situacao = null, categoria = null } = {}) {
   }
   const onde = condicoes.length ? `WHERE ${condicoes.join(' AND ')}` : '';
 
-  return abrirBanco()
-    .prepare(
-      `SELECT f.id, f.tenant_id AS tenantId, f.categoria, f.mensagem, f.tela, f.criado_em AS criadoEm,
-              f.situacao, f.usuario, f.nota_interna AS notaInterna, t.nome AS empresa
-       FROM feedback f JOIN tenants t ON t.id = f.tenant_id
-       ${onde}
-       ORDER BY f.criado_em DESC`,
-    )
-    .all(...valores);
+  return consultar(
+    `SELECT f.id, f.tenant_id AS tenantId, f.categoria, f.mensagem, f.tela, f.criado_em AS criadoEm,
+            f.situacao, f.usuario, f.nota_interna AS notaInterna, t.nome AS empresa
+     FROM feedback f JOIN tenants t ON t.id = f.tenant_id
+     ${onde}
+     ORDER BY f.criado_em DESC`,
+    valores,
+  );
 }
 
-export function atualizarSituacaoFeedback(id, situacao, notaInterna) {
-  abrirBanco()
-    .prepare('UPDATE feedback SET situacao = ?, nota_interna = COALESCE(?, nota_interna) WHERE id = ?')
-    .run(situacao, notaInterna ?? null, id);
+export async function atualizarSituacaoFeedback(id, situacao, notaInterna) {
+  await executar('UPDATE feedback SET situacao = ?, nota_interna = COALESCE(?, nota_interna) WHERE id = ?',
+    [situacao, notaInterna ?? null, id]);
 }
 
 /* Quantos relatos por categoria — o número que responde "o que mais incomoda os clientes?", que é
  * a pergunta que o piloto existe para responder. */
 export function resumoFeedback() {
-  return abrirBanco()
-    .prepare(
-      `SELECT categoria,
-              COUNT(*) AS total,
-              SUM(CASE WHEN situacao = 'aberto' THEN 1 ELSE 0 END) AS abertos,
-              COUNT(DISTINCT tenant_id) AS empresas
-       FROM feedback GROUP BY categoria ORDER BY total DESC`,
-    )
-    .all();
+  return consultar(
+    `SELECT categoria,
+            COUNT(*) AS total,
+            SUM(CASE WHEN situacao = 'aberto' THEN 1 ELSE 0 END) AS abertos,
+            COUNT(DISTINCT tenant_id) AS empresas
+     FROM feedback GROUP BY categoria ORDER BY total DESC`,
+  );
 }

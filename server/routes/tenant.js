@@ -24,8 +24,8 @@ export const tenantRouter = Router({ mergeParams: true });
 
 /* Toda gravação de cadastro passa por aqui: confere a versão que o cliente leu, executa, e
  * devolve o carimbo novo. Concentrar isso num lugar evita que uma rota nova esqueça a checagem. */
-function gravarCadastro(req, res, executar) {
-  const conflito = conflitoDeVersao(req, tenants.versaoConfig(req.tenantId));
+async function gravarCadastro(req, res, executar) {
+  const conflito = conflitoDeVersao(req, await tenants.versaoConfig(req.tenantId));
   if (conflito) return res.status(409).json(conflito);
 
   /* O carimbo novo é gerado e o cabeçalho definido ANTES de executar: cabeçalho não pode ser
@@ -33,17 +33,17 @@ function gravarCadastro(req, res, executar) {
    * falhe deixa o carimbo avançado sem mudança de dado — o efeito é apenas um conflito falso para
    * quem estiver editando em paralelo, que será convidado a recarregar. Errar para o lado de pedir
    * recarga é preferível a errar para o lado de sobrescrever. */
-  const versao = tenants.tocarConfig(req.tenantId);
+  const versao = await tenants.tocarConfig(req.tenantId);
   res.set('x-versao', versao);
   return executar();
 }
 
 /* ---------------------------------------------------------------- cadastro */
 
-tenantRouter.get('/', exigirPermissao(P.CONFIG_LER), rota((req, res) => {
-  const t = tenants.buscarTenant(req.tenantId);
-  const regras = empresa.obterRegras(req.tenantId);
-  res.set('x-versao', tenants.versaoConfig(req.tenantId));
+tenantRouter.get('/', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  const t = await tenants.buscarTenant(req.tenantId);
+  const regras = await empresa.obterRegras(req.tenantId);
+  res.set('x-versao', await tenants.versaoConfig(req.tenantId));
   res.json({
     id: t.id,
     nome: t.nome,
@@ -51,25 +51,25 @@ tenantRouter.get('/', exigirPermissao(P.CONFIG_LER), rota((req, res) => {
     environment: t.environment,
     papel: req.papel,
     permissoes: permissoesDoPapel(req.papel),
-    versao: tenants.versaoConfig(req.tenantId),
-    company: empresa.obterEmpresa(req.tenantId),
-    units: empresa.listarUnidades(req.tenantId),
-    departments: empresa.listarSetores(req.tenantId),
-    schedules: empresa.listarEscalas(req.tenantId),
-    employees: empresa.listarColaboradores(req.tenantId),
-    integrations: empresa.listarIntegracoes(req.tenantId),
-    users: tenants.listarMembros(req.tenantId),
+    versao: await tenants.versaoConfig(req.tenantId),
+    company: await empresa.obterEmpresa(req.tenantId),
+    units: await empresa.listarUnidades(req.tenantId),
+    departments: await empresa.listarSetores(req.tenantId),
+    schedules: await empresa.listarEscalas(req.tenantId),
+    employees: await empresa.listarColaboradores(req.tenantId),
+    integrations: await empresa.listarIntegracoes(req.tenantId),
+    users: await tenants.listarMembros(req.tenantId),
     rules: regras?.regras,
     causaOpts: regras?.causaOpts ?? [],
   });
 }));
 
-tenantRouter.put('/empresa', exigirPermissao(P.CONFIG_ESCREVER), rota((req, res) => gravarCadastro(req, res, () => {
-  const antes = empresa.obterEmpresa(req.tenantId);
-  const depois = empresa.salvarEmpresa(req.tenantId, req.body ?? {});
+tenantRouter.put('/empresa', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => gravarCadastro(req, res, async () => {
+  const antes = await empresa.obterEmpresa(req.tenantId);
+  const depois = await empresa.salvarEmpresa(req.tenantId, req.body ?? {});
   /* O nome do tenant acompanha o nome da empresa — é o rótulo que aparece no seletor de empresas
    * e na lista de "onde posso entrar". Sem isso, renomear a empresa mudaria a tela mas não o menu. */
-  if (depois?.nome) tenants.renomearTenant(req.tenantId, depois.nome);
+  if (depois?.nome) await tenants.renomearTenant(req.tenantId, depois.nome);
   auditar(req, { entidade: 'Empresa', acao: 'Dados da empresa atualizados', valorAnterior: antes?.nome, valorNovo: depois?.nome });
   res.json(depois);
 })));
@@ -78,21 +78,21 @@ tenantRouter.put('/empresa', exigirPermissao(P.CONFIG_ESCREVER), rota((req, res)
  * A fábrica evita repetir cinco vezes o mesmo bloco e garante que nenhuma delas esqueça a
  * verificação de permissão, o controle de versão ou a auditoria. */
 function rotasDeColecao(caminho, rotulo, api) {
-  tenantRouter.get(`/${caminho}`, exigirPermissao(P.CONFIG_LER), rota((req, res) => {
-    res.json(api.listar(req.tenantId));
+  tenantRouter.get(`/${caminho}`, exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+    res.json(await api.listar(req.tenantId));
   }));
 
-  tenantRouter.post(`/${caminho}`, exigirPermissao(P.CONFIG_ESCREVER), rota((req, res) => gravarCadastro(req, res, () => {
+  tenantRouter.post(`/${caminho}`, exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => gravarCadastro(req, res, async () => {
     if (!req.body?.nome?.trim()) {
       return res.status(400).json({ erro: 'dados_invalidos', mensagem: `Informe o nome ${rotulo}.` });
     }
-    const salvo = api.salvar(req.tenantId, req.body);
+    const salvo = await api.salvar(req.tenantId, req.body);
     auditar(req, { entidade: `${rotulo} ${salvo.nome}`, acao: `${rotulo} salvo(a)`, valorNovo: salvo.nome });
     res.status(201).json(salvo);
   })));
 
-  tenantRouter.delete(`/${caminho}/:id`, exigirPermissao(P.CONFIG_ESCREVER), rota((req, res) => gravarCadastro(req, res, () => {
-    api.excluir(req.tenantId, req.params.id);
+  tenantRouter.delete(`/${caminho}/:id`, exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => gravarCadastro(req, res, async () => {
+    await api.excluir(req.tenantId, req.params.id);
     auditar(req, { entidade: `${rotulo} ${req.params.id}`, acao: `${rotulo} excluído(a)` });
     res.status(204).end();
   })));
@@ -105,17 +105,17 @@ rotasDeColecao('colaboradores', 'Colaborador', { listar: empresa.listarColaborad
 
 /* ---------------------------------------------------------------- regras */
 
-tenantRouter.get('/regras', exigirPermissao(P.CONFIG_LER), rota((req, res) => {
-  res.json(empresa.obterRegras(req.tenantId));
+tenantRouter.get('/regras', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await empresa.obterRegras(req.tenantId));
 }));
 
-tenantRouter.put('/regras', exigirPermissao(P.CONFIG_ESCREVER), rota((req, res) => gravarCadastro(req, res, () => {
+tenantRouter.put('/regras', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => gravarCadastro(req, res, async () => {
   const { regras, causaOpts } = req.body ?? {};
   if (!regras || typeof regras.toleranceMin !== 'number') {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Regras inválidas.' });
   }
-  const antes = empresa.obterRegras(req.tenantId);
-  const depois = empresa.salvarRegras(req.tenantId, { regras, causaOpts });
+  const antes = await empresa.obterRegras(req.tenantId);
+  const depois = await empresa.salvarRegras(req.tenantId, { regras, causaOpts });
   auditar(req, {
     entidade: 'Regras da empresa',
     acao: 'Regras atualizadas',
@@ -130,12 +130,12 @@ tenantRouter.put('/regras', exigirPermissao(P.CONFIG_ESCREVER), rota((req, res) 
 /* Só o STATUS ("esta empresa usa esta fonte?") é editável. Credencial nenhuma passa por aqui —
  * nem no corpo, nem no banco de configuração: segredo de integração mora em variável de ambiente
  * do servidor (ver INTEGRATIONS.md). */
-tenantRouter.put('/integracoes/:id', exigirPermissao(P.CONFIG_ESCREVER), rota((req, res) => gravarCadastro(req, res, () => {
+tenantRouter.put('/integracoes/:id', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => gravarCadastro(req, res, async () => {
   const { status } = req.body ?? {};
   if (status !== 'configurado' && status !== 'nao_configurado') {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Status de integração inválido.' });
   }
-  const salva = empresa.salvarIntegracao(req.tenantId, { id: req.params.id, status });
+  const salva = await empresa.salvarIntegracao(req.tenantId, { id: req.params.id, status });
   if (!salva) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Integração não encontrada.' });
   auditar(req, { entidade: `Integração ${salva.nome}`, acao: 'Status de integração alterado', valorNovo: status });
   res.json(salva);
@@ -149,13 +149,13 @@ function papelValido(papel) {
 
 /* Vincula uma conta JÁ EXISTENTE à empresa. Não cria usuário: criar conta em nome de outra pessoa
  * significaria definir a senha dela. Para quem ainda não tem conta existe o convite. */
-tenantRouter.post('/membros', exigirPermissao(P.USUARIOS_GERIR), rota((req, res) => {
+tenantRouter.post('/membros', exigirPermissao(P.USUARIOS_GERIR), rota(async (req, res) => {
   const { email, papel } = req.body ?? {};
   if (!email || !papelValido(papel)) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe o e-mail e um papel válido.' });
   }
 
-  const u = usuarios.buscarPorEmail(email);
+  const u = await usuarios.buscarPorEmail(email);
   if (!u) {
     return res.status(404).json({
       erro: 'usuario_inexistente',
@@ -163,12 +163,12 @@ tenantRouter.post('/membros', exigirPermissao(P.USUARIOS_GERIR), rota((req, res)
     });
   }
 
-  tenants.adicionarMembro(req.tenantId, u.id, papel);
+  await tenants.adicionarMembro(req.tenantId, u.id, papel);
   auditar(req, { entidade: `Usuário ${u.email}`, acao: 'Acesso concedido', valorNovo: papel });
-  res.status(201).json(tenants.listarMembros(req.tenantId));
+  res.status(201).json(await tenants.listarMembros(req.tenantId));
 }));
 
-tenantRouter.put('/membros/:userId', exigirPermissao(P.USUARIOS_GERIR), rota((req, res) => {
+tenantRouter.put('/membros/:userId', exigirPermissao(P.USUARIOS_GERIR), rota(async (req, res) => {
   const { papel } = req.body ?? {};
   if (!papelValido(papel)) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Papel inválido.' });
@@ -176,30 +176,30 @@ tenantRouter.put('/membros/:userId', exigirPermissao(P.USUARIOS_GERIR), rota((re
 
   /* Rebaixar o último administrador deixaria a empresa sem ninguém capaz de gerir acesso —
    * e desfazer isso exigiria mexer no banco à mão. */
-  const atual = tenants.papelNoTenant(req.params.userId, req.tenantId);
-  if (atual === 'administrador' && papel !== 'administrador' && tenants.contarAdministradores(req.tenantId) <= 1) {
+  const atual = await tenants.papelNoTenant(req.params.userId, req.tenantId);
+  if (atual === 'administrador' && papel !== 'administrador' && await tenants.contarAdministradores(req.tenantId) <= 1) {
     return res.status(400).json({ erro: 'ultimo_administrador', mensagem: 'A empresa precisa de pelo menos um administrador.' });
   }
 
-  tenants.adicionarMembro(req.tenantId, req.params.userId, papel);
+  await tenants.adicionarMembro(req.tenantId, req.params.userId, papel);
   auditar(req, { entidade: `Usuário ${req.params.userId}`, acao: 'Papel alterado', valorAnterior: atual, valorNovo: papel });
-  res.json(tenants.listarMembros(req.tenantId));
+  res.json(await tenants.listarMembros(req.tenantId));
 }));
 
-tenantRouter.delete('/membros/:userId', exigirPermissao(P.USUARIOS_GERIR), rota((req, res) => {
-  const atual = tenants.papelNoTenant(req.params.userId, req.tenantId);
+tenantRouter.delete('/membros/:userId', exigirPermissao(P.USUARIOS_GERIR), rota(async (req, res) => {
+  const atual = await tenants.papelNoTenant(req.params.userId, req.tenantId);
   if (!atual) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Este usuário não tem acesso a esta empresa.' });
-  if (atual === 'administrador' && tenants.contarAdministradores(req.tenantId) <= 1) {
+  if (atual === 'administrador' && await tenants.contarAdministradores(req.tenantId) <= 1) {
     return res.status(400).json({ erro: 'ultimo_administrador', mensagem: 'A empresa precisa de pelo menos um administrador.' });
   }
 
-  tenants.removerMembro(req.tenantId, req.params.userId);
+  await tenants.removerMembro(req.tenantId, req.params.userId);
   auditar(req, { entidade: `Usuário ${req.params.userId}`, acao: 'Acesso removido', valorAnterior: atual });
-  res.json(tenants.listarMembros(req.tenantId));
+  res.json(await tenants.listarMembros(req.tenantId));
 }));
 
-tenantRouter.get('/convites', exigirPermissao(P.USUARIOS_GERIR), rota((req, res) => {
-  res.json(convites.listarConvites(req.tenantId));
+tenantRouter.get('/convites', exigirPermissao(P.USUARIOS_GERIR), rota(async (req, res) => {
+  res.json(await convites.listarConvites(req.tenantId));
 }));
 
 /* Cria o convite, ENVIA por e-mail e devolve o código UMA vez.
@@ -217,9 +217,9 @@ tenantRouter.post('/convites', exigirPermissao(P.USUARIOS_GERIR), rota(async (re
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe o e-mail e um papel válido.' });
   }
 
-  const convite = convites.criarConvite(req.tenantId, { email, papel, criadoPor: req.usuario.id });
+  const convite = await convites.criarConvite(req.tenantId, { email, papel, criadoPor: req.usuario.id });
   const config = carregarConfig();
-  const tenant = tenants.buscarTenant(req.tenantId);
+  const tenant = await tenants.buscarTenant(req.tenantId);
 
   let emailEnviado = false;
   let erroEmail = null;
@@ -248,8 +248,8 @@ tenantRouter.post('/convites', exigirPermissao(P.USUARIOS_GERIR), rota(async (re
   res.status(201).json({ ...convite, emailEnviado, erroEmail });
 }));
 
-tenantRouter.delete('/convites/:id', exigirPermissao(P.USUARIOS_GERIR), rota((req, res) => {
-  convites.revogarConvite(req.tenantId, req.params.id);
+tenantRouter.delete('/convites/:id', exigirPermissao(P.USUARIOS_GERIR), rota(async (req, res) => {
+  await convites.revogarConvite(req.tenantId, req.params.id);
   auditar(req, { entidade: `Convite ${req.params.id}`, acao: 'Convite revogado' });
   res.status(204).end();
 }));
@@ -259,29 +259,29 @@ tenantRouter.delete('/convites/:id', exigirPermissao(P.USUARIOS_GERIR), rota((re
 /* `?completo=1` devolve os dias inteiros numa requisição só. A interface precisa de TODOS os dias
  * para calcular indicadores, ranking e score; pedir um por um geraria centenas de idas ao servidor
  * na abertura do Dashboard. O modo padrão (só as datas) continua para quem quer o índice. */
-tenantRouter.get('/dias', exigirPermissao(P.DADOS_LER), rota((req, res) => {
-  if (req.query.completo === '1') return res.json(operacao.listarDiasCompletos(req.tenantId));
-  res.json(operacao.listarDatas(req.tenantId));
+tenantRouter.get('/dias', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  if (req.query.completo === '1') return res.json(await operacao.listarDiasCompletos(req.tenantId));
+  res.json(await operacao.listarDatas(req.tenantId));
 }));
 
-tenantRouter.get('/dias/:dateKey', exigirPermissao(P.DADOS_LER), rota((req, res) => {
-  const dia = operacao.obterDia(req.tenantId, req.params.dateKey);
+tenantRouter.get('/dias/:dateKey', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  const dia = await operacao.obterDia(req.tenantId, req.params.dateKey);
   if (!dia) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Dia não processado.' });
   res.json(dia);
 }));
 
-tenantRouter.put('/dias/:dateKey', exigirPermissao(P.DADOS_ESCREVER), rota((req, res) => {
+tenantRouter.put('/dias/:dateKey', exigirPermissao(P.DADOS_ESCREVER), rota(async (req, res) => {
   const { snapshot, caseState } = req.body ?? {};
   if (!snapshot || !Array.isArray(snapshot.items)) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Snapshot do dia inválido.' });
   }
-  const dia = operacao.salvarDia(req.tenantId, req.params.dateKey, snapshot, caseState);
+  const dia = await operacao.salvarDia(req.tenantId, req.params.dateKey, snapshot, caseState);
   auditar(req, { entidade: `Dia ${req.params.dateKey}`, acao: 'Dia processado gravado', valorNovo: `${snapshot.items.length} registro(s)` });
   res.json(dia);
 }));
 
-tenantRouter.patch('/dias/:dateKey/casos/:chave', exigirPermissao(P.PENDENCIA_TRATAR), rota((req, res) => {
-  const dia = operacao.atualizarCaso(req.tenantId, req.params.dateKey, req.params.chave, req.body ?? {});
+tenantRouter.patch('/dias/:dateKey/casos/:chave', exigirPermissao(P.PENDENCIA_TRATAR), rota(async (req, res) => {
+  const dia = await operacao.atualizarCaso(req.tenantId, req.params.dateKey, req.params.chave, req.body ?? {});
   if (!dia) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Dia não processado.' });
   auditar(req, { entidade: `Caso ${req.params.dateKey} — ${req.params.chave}`, acao: 'Caso atualizado', valorNovo: JSON.stringify(req.body ?? {}) });
   res.json(dia);
@@ -289,20 +289,20 @@ tenantRouter.patch('/dias/:dateKey/casos/:chave', exigirPermissao(P.PENDENCIA_TR
 
 /* "Limpar histórico" — apaga os dias processados E as pendências derivadas deles. Deixar as
  * pendências para trás criaria uma fila apontando para dias que não existem mais. */
-tenantRouter.delete('/dias', exigirPermissao(P.DADOS_ESCREVER), rota((req, res) => {
-  const n = operacao.limparDias(req.tenantId);
-  operacao.limparPendencias(req.tenantId);
+tenantRouter.delete('/dias', exigirPermissao(P.DADOS_ESCREVER), rota(async (req, res) => {
+  const n = await operacao.limparDias(req.tenantId);
+  await operacao.limparPendencias(req.tenantId);
   auditar(req, { entidade: 'Histórico processado', acao: 'Histórico limpo', valorAnterior: `${n} dia(s)` });
   res.json({ removidos: n });
 }));
 
 /* ---------------------------------------------------------------- pendências */
 
-tenantRouter.get('/pendencias', exigirPermissao(P.PENDENCIA_LER), rota((req, res) => {
-  res.json(operacao.listarPendencias(req.tenantId));
+tenantRouter.get('/pendencias', exigirPermissao(P.PENDENCIA_LER), rota(async (req, res) => {
+  res.json(await operacao.listarPendencias(req.tenantId));
 }));
 
-tenantRouter.put('/pendencias/:id', exigirPermissao(P.PENDENCIA_TRATAR), rota((req, res) => {
+tenantRouter.put('/pendencias/:id', exigirPermissao(P.PENDENCIA_TRATAR), rota(async (req, res) => {
   const p = req.body ?? {};
   if (!p.id || p.id !== req.params.id || !p.data || !p.status) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Pendência inválida.' });
@@ -311,7 +311,7 @@ tenantRouter.put('/pendencias/:id', exigirPermissao(P.PENDENCIA_TRATAR), rota((r
   /* Revisão tem rota própria (permissão separada). Aceitar `aprovado`/`reprovado` por aqui deixaria
    * quem só pode TRATAR aprovar o próprio trabalho — exatamente o que a separação impede. */
   if (p.status === 'aprovado' || p.status === 'reprovado') {
-    const anterior = operacao.obterPendencia(req.tenantId, p.id);
+    const anterior = await operacao.obterPendencia(req.tenantId, p.id);
     if (anterior?.status !== p.status) {
       return res.status(403).json({
         erro: 'sem_permissao',
@@ -320,12 +320,12 @@ tenantRouter.put('/pendencias/:id', exigirPermissao(P.PENDENCIA_TRATAR), rota((r
     }
   }
 
-  const atual = operacao.obterPendencia(req.tenantId, p.id);
+  const atual = await operacao.obterPendencia(req.tenantId, p.id);
   const conflito = conflitoDeVersao(req, atual?.atualizadaEm);
   if (conflito) return res.status(409).json(conflito);
 
   /* Campos de revisão nunca vêm do cliente nesta rota: são preservados do que está gravado. */
-  const salva = operacao.salvarPendencia(req.tenantId, {
+  const salva = await operacao.salvarPendencia(req.tenantId, {
     ...p,
     revisadoPor: atual?.revisadoPor ?? null,
     revisadoEm: atual?.revisadoEm ?? null,
@@ -347,18 +347,18 @@ tenantRouter.put('/pendencias/:id', exigirPermissao(P.PENDENCIA_TRATAR), rota((r
 }));
 
 /* Revisão é permissão SEPARADA de tratamento — quem executa não aprova o próprio trabalho. */
-tenantRouter.post('/pendencias/:id/revisao', exigirPermissao(P.PENDENCIA_REVISAR), rota((req, res) => {
+tenantRouter.post('/pendencias/:id/revisao', exigirPermissao(P.PENDENCIA_REVISAR), rota(async (req, res) => {
   const { decisao, observacao } = req.body ?? {};
   if (decisao !== 'aprovado' && decisao !== 'reprovado') {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Decisão de revisão inválida.' });
   }
 
-  const atual = operacao.obterPendencia(req.tenantId, req.params.id);
+  const atual = await operacao.obterPendencia(req.tenantId, req.params.id);
   if (!atual) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Pendência não encontrada.' });
 
   /* `revisadoPor` vem da SESSÃO, nunca do corpo — é o que impede alguém registrar uma
    * aprovação em nome de outra pessoa. */
-  const salva = operacao.salvarPendencia(req.tenantId, {
+  const salva = await operacao.salvarPendencia(req.tenantId, {
     ...atual,
     status: decisao,
     revisadoPor: req.usuario.nome,
@@ -379,13 +379,13 @@ tenantRouter.post('/pendencias/:id/revisao', exigirPermissao(P.PENDENCIA_REVISAR
 
 /* ---------------------------------------------------------------- auditoria */
 
-tenantRouter.get('/auditoria', exigirPermissao(P.AUDITORIA_LER), rota((req, res) => {
-  res.json(operacao.listarAuditoria(req.tenantId));
+tenantRouter.get('/auditoria', exigirPermissao(P.AUDITORIA_LER), rota(async (req, res) => {
+  res.json(await operacao.listarAuditoria(req.tenantId));
 }));
 
 /* Registro de exportação. É a única auditoria que o cliente PEDE para gravar — mas o autor
  * continua vindo da sessão, e a ação é fixa: o corpo só descreve o que foi exportado. */
-tenantRouter.post('/exportacoes', exigirPermissao(P.RELATORIO_EXPORTAR), rota((req, res) => {
+tenantRouter.post('/exportacoes', exigirPermissao(P.RELATORIO_EXPORTAR), rota(async (req, res) => {
   const { relatorio, escopo } = req.body ?? {};
   if (!relatorio) return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe o relatório exportado.' });
   auditar(req, { entidade: `Relatório ${relatorio}`, acao: 'Relatório exportado', valorNovo: escopo ?? '' });
@@ -398,7 +398,7 @@ tenantRouter.post('/exportacoes', exigirPermissao(P.RELATORIO_EXPORTAR), rota((r
  *
  * Isso é deliberado: num piloto, a pessoa que mais tropeça costuma ser justamente a que tem menos
  * permissão, e exigir papel para relatar silenciaria exatamente quem mais tem o que dizer. */
-tenantRouter.post('/feedback', rota((req, res) => {
+tenantRouter.post('/feedback', rota(async (req, res) => {
   const { categoria, mensagem, tela } = req.body ?? {};
 
   if (!piloto.CATEGORIAS_FEEDBACK.includes(categoria)) {
@@ -409,7 +409,7 @@ tenantRouter.post('/feedback', rota((req, res) => {
   }
 
   /* Quem relatou vem da SESSÃO, nunca do corpo — mesma regra da auditoria. */
-  const entrada = piloto.registrarFeedback(req.tenantId, {
+  const entrada = await piloto.registrarFeedback(req.tenantId, {
     userId: req.usuario.id,
     usuario: req.usuario.nome,
     categoria,
@@ -423,8 +423,8 @@ tenantRouter.post('/feedback', rota((req, res) => {
 /* O que a própria empresa já enviou. Cada uma vê só o seu — é dado dela, sujeito às mesmas regras
  * de isolamento de todo o resto. Não existe rota que mostre o feedback de várias empresas juntas:
  * essa visão é do operador do piloto e sai pela CLI, que roda no servidor. */
-tenantRouter.get('/feedback', rota((req, res) => {
-  res.json(piloto.listarFeedbackDaEmpresa(req.tenantId));
+tenantRouter.get('/feedback', rota(async (req, res) => {
+  res.json(await piloto.listarFeedbackDaEmpresa(req.tenantId));
 }));
 
 /* ---------------------------------------------------------------- importação em lote */
@@ -434,7 +434,7 @@ tenantRouter.get('/feedback', rota((req, res) => {
  *
  * Devolve a CONTAGEM do que ficou gravado — é o que permite ao cliente conferir antes de oferecer
  * a limpeza local. Nada é apagado do navegador por esta rota. */
-tenantRouter.post('/importar', exigirPermissao(P.DADOS_ESCREVER), rota((req, res) => {
+tenantRouter.post('/importar', exigirPermissao(P.DADOS_ESCREVER), rota(async (req, res) => {
   const { dias = [], pendencias = [] } = req.body ?? {};
   if (!Array.isArray(dias) || !Array.isArray(pendencias)) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Formato de importação inválido.' });
@@ -443,14 +443,14 @@ tenantRouter.post('/importar', exigirPermissao(P.DADOS_ESCREVER), rota((req, res
   let diasGravados = 0;
   for (const d of dias) {
     if (!d?.dateKey || !d?.snapshot?.items) continue;
-    operacao.salvarDia(req.tenantId, d.dateKey, d.snapshot, d.caseState ?? {});
+    await operacao.salvarDia(req.tenantId, d.dateKey, d.snapshot, d.caseState ?? {});
     diasGravados += 1;
   }
 
   let pendenciasGravadas = 0;
   for (const p of pendencias) {
     if (!p?.id || !p?.data || !p?.status) continue;
-    operacao.salvarPendencia(req.tenantId, p);
+    await operacao.salvarPendencia(req.tenantId, p);
     pendenciasGravadas += 1;
   }
 
@@ -465,18 +465,18 @@ tenantRouter.post('/importar', exigirPermissao(P.DADOS_ESCREVER), rota((req, res
     pendenciasGravadas,
     /* Contagem lida DO BANCO depois de gravar — conferir contra o que o cliente mandou é o que
      * transforma "enviei" em "está lá". */
-    diasNoServidor: operacao.listarDatas(req.tenantId).length,
-    pendenciasNoServidor: operacao.listarPendencias(req.tenantId).length,
+    diasNoServidor: (await operacao.listarDatas(req.tenantId)).length,
+    pendenciasNoServidor: (await operacao.listarPendencias(req.tenantId)).length,
   });
 }));
 
 /* ---------------------------------------------------------------- exclusão da empresa */
 
-tenantRouter.delete('/', exigirPermissao(P.TENANT_EXCLUIR), rota((req, res) => {
-  const t = tenants.buscarTenant(req.tenantId);
+tenantRouter.delete('/', exigirPermissao(P.TENANT_EXCLUIR), rota(async (req, res) => {
+  const t = await tenants.buscarTenant(req.tenantId);
   if (t?.environment === 'demo') {
     return res.status(400).json({ erro: 'protegido', mensagem: 'O ambiente de demonstração não pode ser excluído.' });
   }
-  tenants.excluirTenant(req.tenantId);
+  await tenants.excluirTenant(req.tenantId);
   res.status(204).end();
 }));

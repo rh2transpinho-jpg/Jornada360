@@ -15,9 +15,14 @@ import { podeExecutar } from '../lib/permissoes.js';
 import { situacaoTenant } from '../repositories/pilotoRepository.js';
 import { exigeCabecalhoAntiCsrf, temCabecalhoAntiCsrf, tokenDaRequisicao } from '../lib/sessaoHttp.js';
 
-export function autenticar(req, res, next) {
+/* `autenticar` e `resolverTenant` consultam o banco e passaram a ser assíncronos.
+ *
+ * Os dois são exportados envolvidos em `rota()` — que encaminha uma promessa rejeitada para o
+ * tratador de erros. Sem esse envelope, uma falha de banco DENTRO do middleware de autenticação
+ * ficaria pendurada sem resposta: o cliente esperaria para sempre, e nada apareceria no log. */
+async function autenticarAsync(req, res, next) {
   const { token, origem } = tokenDaRequisicao(req);
-  const sessao = sessaoValida(token);
+  const sessao = await sessaoValida(token);
   if (!sessao) {
     return res.status(401).json({ erro: 'nao_autenticado', mensagem: 'Sessão inválida ou expirada.' });
   }
@@ -38,9 +43,9 @@ export function autenticar(req, res, next) {
   next();
 }
 
-export function resolverTenant(req, res, next) {
+async function resolverTenantAsync(req, res, next) {
   const tenantId = req.params.tenantId;
-  const papel = papelNoTenant(req.usuario.id, tenantId);
+  const papel = await papelNoTenant(req.usuario.id, tenantId);
 
   /* Sem membership o recurso "não existe" para este usuário. Devolver 403 revelaria que o tenant
    * existe e que ele apenas não tem acesso — informação que um atacante usaria para enumerar
@@ -59,7 +64,7 @@ export function resolverTenant(req, res, next) {
    *
    * A verificação fica AQUI, antes de qualquer rota, e não em cada uma: uma rota nova que
    * esquecesse de checar seria um caminho aberto para uma empresa suspensa continuar operando. */
-  const situacao = situacaoTenant(tenantId);
+  const situacao = await situacaoTenant(tenantId);
   if (situacao?.status === 'suspensa') {
     return res.status(403).json({
       erro: 'empresa_suspensa',
@@ -73,6 +78,9 @@ export function resolverTenant(req, res, next) {
   req.papel = papel;
   next();
 }
+
+export const autenticar = rota(autenticarAsync);
+export const resolverTenant = rota(resolverTenantAsync);
 
 export function exigirPermissao(permissao) {
   return (req, res, next) => {

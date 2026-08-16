@@ -1,19 +1,29 @@
 /* Conexão com o banco e mecanismo de migrations.
  *
- * SQLite via `node:sqlite` — módulo embutido no Node 22+. Escolhido deliberadamente sobre
- * better-sqlite3/postgres: zero dependência externa, zero compilação nativa (que costuma falhar
- * no Windows), e o mesmo SQL padrão que uma migração futura para Postgres aproveitaria quase
- * inteiro. Para o volume de um sistema de jornada por empresa, SQLite é adequado de sobra.
+ * DOIS DRIVERS, UM CONTRATO. O mesmo SQL roda em dois lugares:
+ *
+ *   - `node:sqlite`  — arquivo local. É a Opção B (Docker/VPS) e o que os testes usam.
+ *   - libSQL/Turso   — banco remoto. É a Opção A (publicação gratuita), onde não existe disco
+ *                      persistente e um arquivo local sumiria no primeiro reinício.
+ *
+ * A escolha é por variável de ambiente e acontece UMA vez, na abertura. Nenhum repositório sabe
+ * em qual dos dois está — é a mesma ideia da fábrica de repositórios do frontend (ver
+ * FRONTEND_BACKEND.md), aplicada do lado do servidor.
+ *
+ * TUDO É ASSÍNCRONO, inclusive no driver local, que por dentro é síncrono. Ter duas assinaturas
+ * diferentes para a mesma operação obrigaria cada repositório a saber qual driver está ativo — e
+ * seria a porta de entrada para uma consulta que funciona num ambiente e quebra no outro.
  *
  * As migrations são versionadas e idempotentes: rodar duas vezes não quebra nem duplica. */
-import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { criarDriverSqlite } from './driverSqlite.js';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
-let db = null;
+let driver = null;
+let migrado = false;
 
 /* O caminho vem de variável de ambiente para que test/dev/prod usem bancos diferentes sem
  * nenhuma troca de código — e para que o teste nunca escreva por cima do banco de trabalho. */
@@ -21,71 +31,115 @@ export function caminhoBanco() {
   return process.env.JORNADA_DB_PATH || join(AQUI, '..', '..', 'data', 'jornada360.db');
 }
 
-export function abrirBanco() {
-  if (db) return db;
-  const caminho = caminhoBanco();
-  if (caminho !== ':memory:') mkdirSync(dirname(caminho), { recursive: true });
-
-  db = new DatabaseSync(caminho);
-  /* WAL melhora leitura concorrente; foreign_keys precisa ser ligado por conexão no SQLite
-   * (não é padrão), senão as chaves estrangeiras do schema seriam decorativas. */
-  if (caminho !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
-  db.exec('PRAGMA foreign_keys = ON;');
-  return db;
+/** 'libsql' quando há um banco remoto configurado; 'sqlite' no arquivo local. */
+export function modoBanco() {
+  return process.env.JORNADA_DB_URL ? 'libsql' : 'sqlite';
 }
 
-export function fecharBanco() {
-  if (db) {
-    db.close();
-    db = null;
+/* O driver remoto é importado sob demanda: quem roda em SQLite (todos os testes, o Docker, o
+ * desenvolvimento local) não paga por uma dependência que não usa, e o projeto continua rodando
+ * mesmo se `@libsql/client` não estiver instalado. */
+async function criarDriver() {
+  if (modoBanco() === 'libsql') {
+    const { criarDriverLibsql } = await import('./driverLibsql.js');
+    return criarDriverLibsql({
+      url: process.env.JORNADA_DB_URL,
+      token: process.env.JORNADA_DB_TOKEN,
+    });
+  }
+  return criarDriverSqlite(caminhoBanco());
+}
+
+export async function bd() {
+  if (!driver) driver = await criarDriver();
+  return driver;
+}
+
+/* Conexão crua do SQLite. Só existe para o backup por `VACUUM INTO`, que é inerentemente
+ * específico do arquivo local. Em modo remoto não há arquivo para copiar — o backup de lá é a
+ * exportação (`npm run exportar`), documentado em DEPLOY_GRATUITO.md. */
+export async function conexaoSqlite() {
+  const d = await bd();
+  if (d.modo !== 'sqlite') {
+    throw new Error('Operação disponível apenas no banco em arquivo (SQLite). Use `npm run exportar` no banco remoto.');
+  }
+  return d.conexao;
+}
+
+export async function fecharBanco() {
+  if (driver) {
+    await driver.fechar();
+    driver = null;
+    migrado = false;
   }
 }
 
+/* ---------------------------------------------------------------- acesso */
+
+export async function consultar(sql, params = []) {
+  return (await bd()).consultar(sql, params);
+}
+
+export async function consultarUm(sql, params = []) {
+  return (await bd()).consultarUm(sql, params);
+}
+
+export async function executar(sql, params = []) {
+  return (await bd()).executar(sql, params);
+}
+
+/* Executa uma função dentro de uma transação. Usado onde uma operação toca várias tabelas
+ * (criar tenant + empresa + regras + integrações + membership), para não deixar meia empresa
+ * gravada se algo falhar no meio.
+ *
+ * A função recebe um objeto com o MESMO contrato (`consultar`/`consultarUm`/`executar`) ligado à
+ * transação. Usar o acesso global lá dentro escreveria fora dela — e o rollback não desfaria. */
+export async function emTransacao(fn) {
+  return (await bd()).emTransacao(fn);
+}
+
+/* ---------------------------------------------------------------- migrations */
+
+const MIGRACOES = [
+  { versao: 1, arquivo: 'schema.sql' },
+  { versao: 2, arquivo: '002_fase4.sql' },
+  { versao: 3, arquivo: '003_fase5.sql' },
+  { versao: 4, arquivo: '004_piloto.sql' },
+];
+
 /* Executa o schema. É idempotente (todo CREATE usa IF NOT EXISTS) e registra a versão aplicada,
  * para que uma migração futura saiba de onde continuar em vez de recriar tudo. */
-export function migrar() {
-  const conexao = abrirBanco();
-  conexao.exec(`
+export async function migrar() {
+  const d = await bd();
+
+  await d.executarMultiplos(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       versao     INTEGER PRIMARY KEY,
       aplicada_em TEXT NOT NULL
     );
   `);
 
-  const migracoes = [
-    { versao: 1, arquivo: 'schema.sql' },
-    { versao: 2, arquivo: '002_fase4.sql' },
-    { versao: 3, arquivo: '003_fase5.sql' },
-    { versao: 4, arquivo: '004_piloto.sql' },
-  ];
+  const aplicadas = await d.consultar('SELECT versao FROM schema_migrations');
+  const jaAplicadas = new Set(aplicadas.map((r) => Number(r.versao)));
 
-  const jaAplicadas = new Set(
-    conexao.prepare('SELECT versao FROM schema_migrations').all().map((r) => r.versao),
-  );
-
-  for (const m of migracoes) {
+  for (const m of MIGRACOES) {
     if (jaAplicadas.has(m.versao)) continue;
-    conexao.exec(readFileSync(join(AQUI, m.arquivo), 'utf8'));
-    conexao
-      .prepare('INSERT INTO schema_migrations (versao, aplicada_em) VALUES (?, ?)')
-      .run(m.versao, new Date().toISOString());
+    await d.executarMultiplos(readFileSync(join(AQUI, m.arquivo), 'utf8'));
+    await d.executar('INSERT INTO schema_migrations (versao, aplicada_em) VALUES (?, ?)', [
+      m.versao,
+      new Date().toISOString(),
+    ]);
   }
 
-  return conexao;
+  migrado = true;
+  return d;
 }
 
-/* Executa uma função dentro de uma transação. Usado onde uma operação toca várias tabelas
- * (criar tenant + empresa + regras + integrações + membership), para não deixar meia empresa
- * gravada se algo falhar no meio. */
-export function emTransacao(fn) {
-  const conexao = abrirBanco();
-  conexao.exec('BEGIN');
-  try {
-    const r = fn(conexao);
-    conexao.exec('COMMIT');
-    return r;
-  } catch (e) {
-    conexao.exec('ROLLBACK');
-    throw e;
-  }
+/* Garante que o schema existe antes da primeira requisição.
+ *
+ * Existe porque `criarApp()` é síncrono e não pode esperar a migração terminar. Sem esta trava,
+ * uma requisição que chegasse no primeiro segundo do processo consultaria uma tabela ainda não
+ * criada — cenário real em hospedagem gratuita, onde o serviço acorda já com gente batendo. */
+export async function garantirMigrado() {
+  if (!migrado) await migrar();
 }

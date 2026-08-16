@@ -19,7 +19,7 @@ import { mkdirSync, readdirSync, statSync, unlinkSync, existsSync, copyFileSync 
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { abrirBanco, caminhoBanco } from '../db/index.js';
+import { conexaoSqlite, caminhoBanco } from '../db/index.js';
 import { log } from './log.js';
 
 /* Tabelas que precisam existir e ser consultáveis num backup válido. Se uma sumir, o arquivo não
@@ -61,7 +61,10 @@ export function verificarBackup(caminho) {
   }
 }
 
-export function gerarBackup(config, { rotulo = 'auto' } = {}) {
+/* `async` desde que o banco passou a poder ser remoto: `conexaoSqlite()` recusa quando o driver
+ * ativo é o libSQL, e recusar é a resposta certa — não existe arquivo local para copiar lá. O
+ * backup do banco remoto é a exportação (`npm run exportar`), documentada em DEPLOY_GRATUITO.md. */
+export async function gerarBackup(config, { rotulo = 'auto' } = {}) {
   const destinoDir = config.backup.diretorio;
   if (!destinoDir) return { ok: false, erro: 'JORNADA_BACKUP_DIR não definida.' };
 
@@ -73,7 +76,7 @@ export function gerarBackup(config, { rotulo = 'auto' } = {}) {
      * verificação evita um erro obscuro caso dois backups disparem no mesmo segundo. */
     if (existsSync(destino)) return { ok: false, erro: 'já existe um backup com este carimbo.' };
 
-    abrirBanco().exec(`VACUUM INTO '${destino.replace(/'/g, "''")}'`);
+    (await conexaoSqlite()).exec(`VACUUM INTO '${destino.replace(/'/g, "''")}'`);
   } catch (e) {
     return { ok: false, erro: `falha ao gerar: ${e.message}` };
   }
@@ -182,8 +185,8 @@ export function agendarBackupAutomatico(config) {
     return () => {};
   }
 
-  const executar = () => {
-    const r = gerarBackup(config, { rotulo: 'auto' });
+  const executar = async () => {
+    const r = await gerarBackup(config, { rotulo: 'auto' });
     if (r.ok) {
       const limpeza = limparAntigos(config);
       log.info('backup automático concluído', {

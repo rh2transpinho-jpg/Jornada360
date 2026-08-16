@@ -48,18 +48,18 @@ function validarCadastro({ email, nome, senha, nomeEmpresa }) {
 }
 
 /* Resposta de sessão: cookie sempre, token no corpo só para cliente de API. */
-function responderSessao(req, res, { usuario, token, expiraEm, status = 200 }) {
+async function responderSessao(req, res, { usuario, token, expiraEm, status = 200 }) {
   definirCookieSessao(res, token, expiraEm);
   res.status(status).json({
     ...(clienteQuerToken(req) ? { token } : {}),
     expiraEm,
     usuario,
-    tenants: tenants.tenantsDoUsuario(usuario.id).map((t) => ({ ...t, permissoes: permissoesDoPapel(t.papel) })),
+    tenants: (await tenants.tenantsDoUsuario(usuario.id)).map((t) => ({ ...t, permissoes: permissoesDoPapel(t.papel) })),
   });
 }
 
 /* POST /api/auth/registrar — cria conta + empresa. */
-authRouter.post('/registrar', limiteCadastro, rota((req, res) => {
+authRouter.post('/registrar', limiteCadastro, rota(async (req, res) => {
   const { email, nome, senha, nomeEmpresa } = req.body ?? {};
 
   /* PROGRAMA PILOTO: com o cadastro fechado, empresa nova só entra por liberação manual do
@@ -78,17 +78,17 @@ authRouter.post('/registrar', limiteCadastro, rota((req, res) => {
   const erro = validarCadastro({ email, nome, senha, nomeEmpresa });
   if (erro) return res.status(400).json({ erro: 'dados_invalidos', mensagem: erro });
 
-  if (usuarios.buscarPorEmail(email)) {
+  if (await usuarios.buscarPorEmail(email)) {
     return res.status(409).json({ erro: 'email_em_uso', mensagem: 'Já existe uma conta com este e-mail.' });
   }
 
-  const usuario = usuarios.criarUsuario({ email, nome, senha });
+  const usuario = await usuarios.criarUsuario({ email, nome, senha });
   /* O tenant criado aqui volta na lista montada por `responderSessao` — por isso o retorno de
    * `criarTenant` não é usado diretamente. */
-  tenants.criarTenant({ nome: nomeEmpresa.trim(), criadoPorUserId: usuario.id, papel: 'administrador' });
-  const { token, expiraEm } = usuarios.criarSessao(usuario.id);
+  await tenants.criarTenant({ nome: nomeEmpresa.trim(), criadoPorUserId: usuario.id, papel: 'administrador' });
+  const { token, expiraEm } = await usuarios.criarSessao(usuario.id);
 
-  responderSessao(req, res, { usuario, token, expiraEm, status: 201 });
+  await responderSessao(req, res, { usuario, token, expiraEm, status: 201 });
 }));
 
 /* GET /api/auth/modo — o portão de entrada consulta isto para saber o que oferecer.
@@ -96,38 +96,38 @@ authRouter.post('/registrar', limiteCadastro, rota((req, res) => {
  * Não expõe nada sensível: apenas se a criação de conta está aberta. Sem esta rota, a tela teria
  * de adivinhar — e ofereceria "Criar minha empresa" para receber uma recusa depois de a pessoa
  * preencher o formulário inteiro. */
-authRouter.get('/modo', rota((_req, res) => {
+authRouter.get('/modo', rota(async (_req, res) => {
   res.json({ cadastroAberto: carregarConfig().cadastroAberto });
 }));
 
 /* POST /api/auth/entrar */
-authRouter.post('/entrar', limiteLogin, rota((req, res) => {
+authRouter.post('/entrar', limiteLogin, rota(async (req, res) => {
   const { email, senha } = req.body ?? {};
   if (!email || !senha) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe e-mail e senha.' });
   }
 
-  const usuario = usuarios.autenticar(email, senha);
+  const usuario = await usuarios.autenticar(email, senha);
   /* Mensagem genérica de propósito: distinguir "e-mail não existe" de "senha errada" permitiria
    * descobrir quais e-mails têm conta. */
   if (!usuario) {
     return res.status(401).json({ erro: 'credenciais_invalidas', mensagem: 'E-mail ou senha incorretos.' });
   }
 
-  const { token, expiraEm } = usuarios.criarSessao(usuario.id);
-  responderSessao(req, res, { usuario, token, expiraEm });
+  const { token, expiraEm } = await usuarios.criarSessao(usuario.id);
+  await responderSessao(req, res, { usuario, token, expiraEm });
 }));
 
 /* POST /api/auth/sair */
-authRouter.post('/sair', autenticar, rota((req, res) => {
-  usuarios.encerrarSessao(tokenDaRequisicao(req).token);
+authRouter.post('/sair', autenticar, rota(async (req, res) => {
+  await usuarios.encerrarSessao(tokenDaRequisicao(req).token);
   limparCookieSessao(res);
   res.status(204).end();
 }));
 
 /* GET /api/auth/eu — quem sou, onde posso entrar e o que posso fazer em cada lugar. */
-authRouter.get('/eu', autenticar, rota((req, res) => {
-  const lista = tenants.tenantsDoUsuario(req.usuario.id);
+authRouter.get('/eu', autenticar, rota(async (req, res) => {
+  const lista = await tenants.tenantsDoUsuario(req.usuario.id);
   res.json({
     usuario: req.usuario,
     tenants: lista.map((t) => ({ ...t, permissoes: permissoesDoPapel(t.papel) })),
@@ -136,7 +136,7 @@ authRouter.get('/eu', autenticar, rota((req, res) => {
 
 /* POST /api/auth/tenants — cria mais uma empresa para o usuário logado. Nasce vazia, com os
  * defaults neutros, e nunca copia nada de outra empresa (ver tenantRepository.criarTenant). */
-authRouter.post('/tenants', autenticar, rota((req, res) => {
+authRouter.post('/tenants', autenticar, rota(async (req, res) => {
   /* PROGRAMA PILOTO: mesmo portão do cadastro. Sem isto, fechar o registro não fecharia nada —
    * bastaria criar a conta por convite e abrir quantas empresas quisesse já autenticado, e o
    * operador perderia justamente o que precisa controlar: quais empresas existem. */
@@ -153,7 +153,7 @@ authRouter.post('/tenants', autenticar, rota((req, res) => {
   if (!nome || !nome.trim()) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe o nome da empresa.' });
   }
-  const tenant = tenants.criarTenant({ nome: nome.trim(), criadoPorUserId: req.usuario.id, papel: 'administrador' });
+  const tenant = await tenants.criarTenant({ nome: nome.trim(), criadoPorUserId: req.usuario.id, papel: 'administrador' });
   res.status(201).json({ ...tenant, papel: 'administrador', permissoes: permissoesDoPapel('administrador') });
 }));
 
@@ -185,10 +185,10 @@ authRouter.post('/recuperar', limiteRecuperacao, rota(async (req, res) => {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe um e-mail válido.' });
   }
 
-  const usuario = usuarios.buscarPorEmail(email);
+  const usuario = await usuarios.buscarPorEmail(email);
   if (!usuario || !usuario.ativo) return res.json(respostaGenerica);
 
-  const { token } = recuperacao.criarPedido(usuario.id, req.ip);
+  const { token } = await recuperacao.criarPedido(usuario.id, req.ip);
   const url = `${config.urlPublica}/redefinir-senha?codigo=${encodeURIComponent(token)}`;
   const msg = mensagemRecuperacaoSenha({
     nome: usuario.nome,
@@ -215,25 +215,25 @@ const MOTIVO_RECUPERACAO = {
   expirado: 'Este link expirou. Peça um novo para continuar.',
 };
 
-authRouter.get('/recuperar/:codigo', rota((req, res) => {
-  const r = recuperacao.validarToken(req.params.codigo);
+authRouter.get('/recuperar/:codigo', rota(async (req, res) => {
+  const r = await recuperacao.validarToken(req.params.codigo);
   if (r.erro) return res.status(400).json({ erro: 'link_invalido', motivo: r.erro, mensagem: MOTIVO_RECUPERACAO[r.erro] });
   res.json({ ok: true });
 }));
 
 /* POST /api/auth/redefinir — troca a senha e encerra TODAS as sessões da conta. */
-authRouter.post('/redefinir', rota((req, res) => {
+authRouter.post('/redefinir', rota(async (req, res) => {
   const { codigo, senha } = req.body ?? {};
 
   if (!senha || senha.length < SENHA_MINIMA) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: `A senha precisa ter pelo menos ${SENHA_MINIMA} caracteres.` });
   }
 
-  const r = recuperacao.validarToken(codigo);
+  const r = await recuperacao.validarToken(codigo);
   if (r.erro) return res.status(400).json({ erro: 'link_invalido', motivo: r.erro, mensagem: MOTIVO_RECUPERACAO[r.erro] });
 
-  usuarios.trocarSenha(r.pedido.user_id, senha);
-  recuperacao.marcarUsado(r.pedido.id);
+  await usuarios.trocarSenha(r.pedido.user_id, senha);
+  await recuperacao.marcarUsado(r.pedido.id);
 
   /* Não abre sessão automaticamente: quem acabou de trocar a senha deve entrar com ela, e isso
    * confirma que a nova senha realmente funciona antes de a pessoa fechar a página. */
@@ -258,10 +258,10 @@ const MOTIVO_CONVITE = {
  * Isto NÃO reabre o cadastro: o convite é a credencial. Ele é nominal, de uso único, expira em 7
  * dias, e o e-mail da conta criada é o do convite — não o que o visitante digitar. Ninguém entra
  * sem ter sido escolhido por um administrador de uma empresa que já está no piloto. */
-authRouter.post('/convites/aceitar', limiteCadastro, rota((req, res) => {
+authRouter.post('/convites/aceitar', limiteCadastro, rota(async (req, res) => {
   const { codigo, nome, senha } = req.body ?? {};
 
-  const convite = convites.consultarConvite(codigo);
+  const convite = await convites.consultarConvite(codigo);
   if (convite.erro) {
     return res.status(400).json({ erro: 'convite_invalido', mensagem: MOTIVO_CONVITE[convite.erro] });
   }
@@ -275,32 +275,32 @@ authRouter.post('/convites/aceitar', limiteCadastro, rota((req, res) => {
 
   /* Quem já tem conta precisa ENTRAR e resgatar de dentro. Criar uma segunda conta com o mesmo
    * e-mail duplicaria a pessoa e deixaria o histórico dela partido em dois. */
-  if (usuarios.buscarPorEmail(convite.email)) {
+  if (await usuarios.buscarPorEmail(convite.email)) {
     return res.status(409).json({
       erro: 'email_em_uso',
       mensagem: 'Já existe uma conta com este e-mail. Entre com ela e use "Entrar em outra empresa".',
     });
   }
 
-  const usuario = usuarios.criarUsuario({ email: convite.email, nome: nome.trim(), senha });
-  const r = convites.resgatarConvite(codigo, usuario);
+  const usuario = await usuarios.criarUsuario({ email: convite.email, nome: nome.trim(), senha });
+  const r = await convites.resgatarConvite(codigo, usuario);
   if (r.erro) {
     return res.status(400).json({ erro: 'convite_invalido', mensagem: MOTIVO_CONVITE[r.erro] });
   }
-  tenants.adicionarMembro(r.tenantId, usuario.id, r.papel);
+  await tenants.adicionarMembro(r.tenantId, usuario.id, r.papel);
 
-  const { token, expiraEm } = usuarios.criarSessao(usuario.id);
-  responderSessao(req, res, { usuario, token, expiraEm, status: 201 });
+  const { token, expiraEm } = await usuarios.criarSessao(usuario.id);
+  await responderSessao(req, res, { usuario, token, expiraEm, status: 201 });
 }));
 
-authRouter.post('/convites/resgatar', autenticar, rota((req, res) => {
+authRouter.post('/convites/resgatar', autenticar, rota(async (req, res) => {
   const { codigo } = req.body ?? {};
-  const r = convites.resgatarConvite(codigo, req.usuario);
+  const r = await convites.resgatarConvite(codigo, req.usuario);
   if (r.erro) {
     return res.status(400).json({ erro: 'convite_invalido', mensagem: MOTIVO_CONVITE[r.erro] });
   }
-  tenants.adicionarMembro(r.tenantId, req.usuario.id, r.papel);
+  await tenants.adicionarMembro(r.tenantId, req.usuario.id, r.papel);
   res.json({
-    tenants: tenants.tenantsDoUsuario(req.usuario.id).map((t) => ({ ...t, permissoes: permissoesDoPapel(t.papel) })),
+    tenants: (await tenants.tenantsDoUsuario(req.usuario.id)).map((t) => ({ ...t, permissoes: permissoesDoPapel(t.papel) })),
   });
 }));

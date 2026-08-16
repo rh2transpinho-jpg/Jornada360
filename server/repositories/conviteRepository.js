@@ -10,48 +10,46 @@
  *
  * O código é guardado como HASH, pela mesma razão da senha e do token de sessão: vazar o banco não
  * pode entregar credencial utilizável. Ele é mostrado UMA vez, no momento da criação. */
-import { abrirBanco } from '../db/index.js';
+import { consultar, consultarUm, executar } from '../db/index.js';
 import { novoId, gerarToken, hashToken } from '../lib/seguranca.js';
 
 export const DIAS_VALIDADE = 7;
 
-export function criarConvite(tenantId, { email, papel, criadoPor }) {
+export async function criarConvite(tenantId, { email, papel, criadoPor }) {
   const codigo = gerarToken().slice(0, 24);
   const agora = new Date();
   const expira = new Date(agora.getTime() + DIAS_VALIDADE * 86400_000);
 
-  abrirBanco()
-    .prepare(
-      `INSERT INTO invites (id, tenant_id, email, papel, codigo_hash, criado_por, criado_em, expira_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+  await executar(
+    `INSERT INTO invites (id, tenant_id, email, papel, codigo_hash, criado_por, criado_em, expira_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
       novoId('inv'), tenantId, email.toLowerCase().trim(), papel, hashToken(codigo),
       criadoPor ?? null, agora.toISOString(), expira.toISOString(),
-    );
+    ],
+  );
 
   /* O código cru só existe aqui. Quem chamou precisa entregá-lo agora — não há como recuperá-lo. */
   return { codigo, email: email.toLowerCase().trim(), papel, expiraEm: expira.toISOString() };
 }
 
 export function listarConvites(tenantId) {
-  return abrirBanco()
-    .prepare(
-      `SELECT id, email, papel, criado_em AS criadoEm, expira_em AS expiraEm, aceito_em AS aceitoEm
-       FROM invites WHERE tenant_id = ? ORDER BY criado_em DESC`,
-    )
-    .all(tenantId);
+  return consultar(
+    `SELECT id, email, papel, criado_em AS criadoEm, expira_em AS expiraEm, aceito_em AS aceitoEm
+     FROM invites WHERE tenant_id = ? ORDER BY criado_em DESC`,
+    [tenantId],
+  );
 }
 
-export function revogarConvite(tenantId, id) {
-  abrirBanco().prepare('DELETE FROM invites WHERE tenant_id = ? AND id = ? AND aceito_em IS NULL').run(tenantId, id);
+export async function revogarConvite(tenantId, id) {
+  await executar('DELETE FROM invites WHERE tenant_id = ? AND id = ? AND aceito_em IS NULL', [tenantId, id]);
 }
 
 /* Consulta um convite SEM consumi-lo. Existe para quem ainda não tem conta: o servidor precisa
  * saber para qual e-mail o convite foi emitido antes de criar o usuário, e só então resgatar.
  * Não consome nada — se a criação da conta falhar no meio, o convite continua utilizável. */
-export function consultarConvite(codigo) {
-  const c = abrirBanco().prepare('SELECT * FROM invites WHERE codigo_hash = ?').get(hashToken(codigo || ''));
+export async function consultarConvite(codigo) {
+  const c = await consultarUm('SELECT * FROM invites WHERE codigo_hash = ?', [hashToken(codigo || '')]);
   if (!c) return { erro: 'invalido' };
   if (c.aceito_em) return { erro: 'ja_usado' };
   if (new Date(c.expira_em) <= new Date()) return { erro: 'expirado' };
@@ -60,9 +58,8 @@ export function consultarConvite(codigo) {
 
 /* Resgata um código. Devolve o convite quando ele é válido, ou o motivo da recusa — a interface
  * precisa distinguir "código errado" de "código vencido" para orientar a pessoa. */
-export function resgatarConvite(codigo, usuario) {
-  const db = abrirBanco();
-  const c = db.prepare('SELECT * FROM invites WHERE codigo_hash = ?').get(hashToken(codigo || ''));
+export async function resgatarConvite(codigo, usuario) {
+  const c = await consultarUm('SELECT * FROM invites WHERE codigo_hash = ?', [hashToken(codigo || '')]);
   if (!c) return { erro: 'invalido' };
   if (c.aceito_em) return { erro: 'ja_usado' };
   if (new Date(c.expira_em) <= new Date()) return { erro: 'expirado' };
@@ -71,8 +68,8 @@ export function resgatarConvite(codigo, usuario) {
    * não escolheu. */
   if (c.email !== usuario.email.toLowerCase().trim()) return { erro: 'outro_email' };
 
-  db.prepare('UPDATE invites SET aceito_em = ?, aceito_por = ? WHERE id = ?')
-    .run(new Date().toISOString(), usuario.id, c.id);
+  await executar('UPDATE invites SET aceito_em = ?, aceito_por = ? WHERE id = ?',
+    [new Date().toISOString(), usuario.id, c.id]);
 
   return { tenantId: c.tenant_id, papel: c.papel };
 }

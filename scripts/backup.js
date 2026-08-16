@@ -41,7 +41,7 @@ if (process.argv.includes('--listar')) {
 const rotulo = process.argv.includes('--manual') ? 'manual' : 'manual';
 console.log(`\nGerando backup de ${caminhoBanco()}…`);
 
-const r = gerarBackup(config, { rotulo });
+const r = await gerarBackup(config, { rotulo });
 
 if (!r.ok) {
   console.error(`\n✗ BACKUP FALHOU: ${r.erro}\n`);
