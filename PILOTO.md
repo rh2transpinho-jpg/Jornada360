@@ -200,11 +200,14 @@ Ver `ROADMAP.md` para o que entra depois da validação com os clientes piloto.
 
 1. `npm run test:all` — 318 testes passando.
 2. `npm run build` — sem erro.
-3. Servidor em produção com `NODE_ENV=production` e as variáveis obrigatórias (ver `DEPLOY.md`).
+3. Servidor em produção com `NODE_ENV=production` e as variáveis obrigatórias — em VPS
+   (`DEPLOY.md`) ou na hospedagem gratuita (`DEPLOY_GRATUITO.md`).
    O servidor **se recusa a subir** com configuração insegura; isso é proposital.
 4. `npm run smoke -- https://seu-dominio` — 31 verificações contra a URL pública.
 5. `curl https://seu-dominio/api/auth/modo` → `{"cadastroAberto":false}`.
-6. `npm run backup` e `npm run testar-restauracao` — backup criado, verificado e restaurável.
+6. Cópia dos dados garantida: em VPS, `npm run backup` e `npm run testar-restauracao`; no banco
+   remoto, `npm run exportar` (o backup por arquivo não existe lá, e o servidor recusa em vez de
+   fingir que fez).
 7. `npm run piloto liberar ...` — libere a empresa e guarde a senha inicial.
 8. Entregue ao cliente: a URL, o e-mail, a senha inicial e o pedido para trocá-la no primeiro
    acesso.

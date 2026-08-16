@@ -40,7 +40,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((r) => servidor.close(r));
-  fecharBanco();
+  await fecharBanco();
   try {
     rmSync(DB, { force: true });
     rmSync(`${DB}-wal`, { force: true });

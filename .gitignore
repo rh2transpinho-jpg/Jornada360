@@ -28,3 +28,10 @@ server/__*.db*
 
 # Relatório de cobertura — gerado por `npm run test:coverage`
 coverage
+
+# Exportações e backups do banco. NUNCA versionar: um dump carrega hash de senha, hash de token de
+# sessão, e-mails e o dado de todas as empresas. Num repositório enviado ao GitHub — mesmo privado —
+# isso é vazamento esperando acontecer.
+backups/
+*.sql.gz
+jornada360-export-*.sql

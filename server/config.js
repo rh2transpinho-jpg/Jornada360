@@ -30,8 +30,15 @@ export function carregarConfig(env = process.env) {
 
   const config = {
     producao,
-    porta: Number(env.JORNADA_PORT || 3333),
+    /* Hospedagem gratuita costuma escolher a porta e informá-la em PORT. Aceitar as duas evita
+     * um serviço que sobe e nunca recebe requisição por estar ouvindo na porta errada. */
+    porta: Number(env.JORNADA_PORT || env.PORT || 3333),
     caminhoBanco: env.JORNADA_DB_PATH || null,
+
+    /* Banco remoto (libSQL/Turso). Quando definido, é ele que vale — e aí não existe arquivo
+     * local, nem volume persistente, nem backup por cópia de arquivo. Ver DEPLOY_GRATUITO.md. */
+    bancoRemoto: env.JORNADA_DB_URL || null,
+    bancoRemotoToken: env.JORNADA_DB_TOKEN || null,
 
     /* Em produção não existe default: uma lista de origens que "veio de fábrica" é exatamente o
      * tipo de coisa que ninguém revisa. Em desenvolvimento, o Vite local. */
@@ -123,7 +130,8 @@ export function validarConfig(config) {
   if (config.email.modo === 'log') {
     problemas.push(
       'JORNADA_EMAIL_MODO=log em produção. Esse modo apenas escreve no console: recuperação de ' +
-        'senha e convite pareceriam funcionar sem nunca chegar a ninguém.',
+        'senha e convite pareceriam funcionar sem nunca chegar a ninguém. Use "smtp" para enviar ' +
+        'de verdade, ou "desativado" para publicar sem e-mail (ver DEPLOY_GRATUITO.md).',
     );
   }
 
@@ -131,10 +139,36 @@ export function validarConfig(config) {
     problemas.push('JORNADA_SMTP_URL não definida, mas o envio de e-mail está em modo smtp.');
   }
 
-  /* O banco dentro da pasta do código é apagado pelo próximo deploy. É a forma mais silenciosa de
-   * perder todos os dados de todos os clientes. */
-  if (!config.caminhoBanco) {
-    problemas.push('JORNADA_DB_PATH não definida. Em produção o banco precisa ficar num volume persistente.');
+  if (!['smtp', 'log', 'desativado'].includes(config.email.modo)) {
+    problemas.push(`JORNADA_EMAIL_MODO desconhecido ("${config.email.modo}"). Use smtp, desativado ou log.`);
+  }
+
+  /* PERSISTÊNCIA — duas formas válidas, e nenhuma terceira.
+   *
+   * (A) banco remoto (JORNADA_DB_URL): os dados vivem fora da máquina que roda o servidor. É o
+   *     caminho da hospedagem gratuita, onde o disco é efêmero.
+   * (B) arquivo em volume persistente (JORNADA_DB_PATH): o caminho do Docker/VPS.
+   *
+   * Sem nenhum dos dois, ou com um arquivo dentro da pasta do código, o próximo deploy apaga o
+   * banco de todos os clientes — a forma mais silenciosa de perder tudo. */
+  if (config.bancoRemoto) {
+    if (!/^libsql:|^https:|^wss:|^file:/.test(config.bancoRemoto)) {
+      problemas.push(`JORNADA_DB_URL com esquema inesperado ("${config.bancoRemoto}"). Use a URL libsql:// do provedor.`);
+    }
+    if (config.bancoRemoto.startsWith('file:')) {
+      problemas.push(
+        'JORNADA_DB_URL aponta para um arquivo local (file:). Em hospedagem sem disco persistente ' +
+          'isso some no próximo deploy — use a URL remota do provedor.',
+      );
+    }
+    if (!config.bancoRemotoToken && !config.bancoRemoto.startsWith('file:')) {
+      problemas.push('JORNADA_DB_TOKEN não definida. Um banco remoto sem token de acesso não abre.');
+    }
+  } else if (!config.caminhoBanco) {
+    problemas.push(
+      'Nenhum banco persistente configurado. Defina JORNADA_DB_URL (banco remoto) ou ' +
+        'JORNADA_DB_PATH (arquivo em volume persistente).',
+    );
   } else if (/^\.?\/?data\//.test(config.caminhoBanco) || config.caminhoBanco.startsWith('./')) {
     problemas.push(
       `JORNADA_DB_PATH aponta para dentro da pasta do código ("${config.caminhoBanco}"). ` +
@@ -142,7 +176,10 @@ export function validarConfig(config) {
     );
   }
 
-  if (!config.backup.diretorio) {
+  /* Backup por cópia de arquivo só existe no banco em arquivo. Com banco remoto, a cópia é a
+   * exportação (`npm run exportar`) e o histórico do próprio provedor — cobrar um diretório aqui
+   * reprovaria uma configuração que está correta. */
+  if (!config.bancoRemoto && !config.backup.diretorio) {
     problemas.push('JORNADA_BACKUP_DIR não definida. Sem ela não há backup automático.');
   }
 

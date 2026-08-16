@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { criarApp } from './app.js';
-import { fecharBanco } from './db/index.js';
+import { fecharBanco, modoBanco } from './db/index.js';
 import { carregarConfig, validarConfig } from './config.js';
 import { gerarBackup, verificarBackup, restaurarBackup, listarBackups, limparAntigos } from './lib/backup.js';
 import { _limparTudo } from './lib/limiteDeTaxa.js';
@@ -48,8 +48,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((r) => servidor.close(r));
-  fecharBanco();
-  rmSync(RAIZ, { recursive: true, force: true });
+  await fecharBanco();
+  /* No Windows o arquivo pode continuar preso por um instante depois de o cliente fechar, e
+   * `force: true` não cobre EPERM. Falhar a limpeza não deve reprovar a suíte: o que ela testa já
+   * passou, e o diretório é temporário do sistema. */
+  try {
+    rmSync(RAIZ, { recursive: true, force: true });
+  } catch {
+    /* o sistema operacional limpa depois */
+  }
 });
 
 beforeEach(() => _limparTudo());
@@ -103,7 +110,14 @@ describe('a configuração de produção é validada antes de o servidor subir',
 
 /* ---------------------------------------------------------------- backup */
 
-describe('backup', () => {
+/* Backup e restauração por ARQUIVO existem só no driver SQLite: `VACUUM INTO` copia um arquivo
+ * local, e no banco remoto não há arquivo para copiar. Não é lacuna — o backup do banco remoto é
+ * a exportação (`npm run exportar`) mais o point-in-time restore do provedor, descritos em
+ * DEPLOY_GRATUITO.md. Rodar estes testes contra o libSQL testaria uma promessa que aquele caminho
+ * nunca fez. */
+const soEmArquivo = describe.skipIf(modoBanco() === 'libsql');
+
+soEmArquivo('backup', () => {
   let dadosCriados = false;
 
   beforeAll(async () => {
@@ -161,7 +175,7 @@ describe('backup', () => {
 
 /* ---------------------------------------------------------------- restauração */
 
-describe('restauração — o teste que transforma backup em garantia', () => {
+soEmArquivo('restauração — o teste que transforma backup em garantia', () => {
   it('restaura num destino isolado e o banco restaurado abre e responde', async () => {
     const backup = await gerarBackup(configTeste(), { rotulo: 'para-restaurar' });
     expect(backup.ok).toBe(true);

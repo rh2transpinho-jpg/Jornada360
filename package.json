@@ -21,7 +21,9 @@
     "testar-restauracao": "node scripts/restaurar.js -- --testar",
     "smoke": "node scripts/smoke.js",
     "start": "node server/index.js",
-    "piloto": "node scripts/piloto.js"
+    "piloto": "node scripts/piloto.js",
+    "exportar": "node scripts/exportar.js",
+    "importar": "node scripts/importar-banco.js"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

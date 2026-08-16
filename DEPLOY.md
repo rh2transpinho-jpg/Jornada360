@@ -1,5 +1,9 @@
 # Publicar o Jornada360
 
+> **Esta é a Opção B: VPS própria, com custo mensal.** Para publicar de graça durante o programa
+> piloto (Render + Turso, R$ 0/mês, sem cartão), ver [DEPLOY_GRATUITO.md](DEPLOY_GRATUITO.md). As
+> duas rodam do mesmo código e a migração entre elas está documentada.
+
 Do zero até uma URL que você entrega a um cliente. O caminho recomendado leva **cerca de 40 minutos**, sendo a maior parte espera de propagação de DNS.
 
 ---

@@ -36,6 +36,11 @@ function obterTransporte(config) {
 /* Verifica a conexão SMTP sem enviar nada. Usado no diagnóstico (`/api/saude?detalhe=1`) para que
  * um problema de credencial apareça antes de alguém precisar recuperar a senha. */
 export async function verificarEmail(config) {
+  /* 'desativado' é um estado declarado, não uma falha: o sistema publica sem e-mail e diz isso.
+   * O que NÃO é aceitável é fingir que enviou — por isso não existe um modo silencioso. */
+  if (config.email.modo === 'desativado') {
+    return { ok: true, modo: 'desativado', observacao: 'Sem envio de e-mail: recuperação de senha e convite pedem entrega manual do código.' };
+  }
   if (config.email.modo !== 'smtp') return { ok: true, modo: config.email.modo };
   try {
     await obterTransporte(config).verify();
@@ -46,6 +51,12 @@ export async function verificarEmail(config) {
 }
 
 export async function enviarEmail(config, { para, assunto, texto, html }) {
+  /* Recusa explícita: quem chamou recebe `enviado: false` e conta a verdade ao usuário. O código
+   * do convite e o link de redefinição continuam aparecendo na tela de quem os gerou. */
+  if (config.email.modo === 'desativado') {
+    return { enviado: false, modo: 'desativado', erro: 'Envio de e-mail não configurado neste ambiente.' };
+  }
+
   if (config.email.modo === 'log') {
     console.log('\n──────── E-MAIL (modo log — NÃO foi enviado) ────────');
     console.log(`Para:     ${para}`);

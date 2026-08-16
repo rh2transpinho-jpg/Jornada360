@@ -35,7 +35,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((r) => servidor.close(r));
-  fecharBanco();
+  await fecharBanco();
   for (const sufixo of ['', '-wal', '-shm']) {
     try {
       rmSync(DB + sufixo);

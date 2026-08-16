@@ -629,6 +629,55 @@ Cobrança automática, checkout, planos, Central 360, CRM, painel de super admin
 `npm run test:all` — **318 testes** (175 frontend + 143 backend, incluindo 10 novos do piloto e 3 de interface). `npx tsc -b`, `npm run build`, `npm run lint` limpos. Validado ao vivo no navegador: cadastro fechado, login do cliente, feedback saindo do botão e chegando na CLI, suspensão bloqueando com os dados intactos, reativação devolvendo tudo, e um convite virando conta nova com o cadastro fechado.
 
 
+## Publicação gratuita — Opção A (Render + Turso)
+
+Mudança de **estratégia de hospedagem**, não de produto. O objetivo passou a ser publicar o piloto numa URL pública sem contratar VPS. Nenhuma regra de negócio, tela, cálculo ou garantia de segurança foi alterada para caber na hospedagem gratuita.
+
+### Por que Render + Turso, e não Cloudflare Workers + D1
+
+O Workers foi avaliado primeiro, e é gratuito e sem cartão. Duas coisas o derrubaram para este produto:
+
+- **Teto de 10 ms de CPU por requisição no plano gratuito.** O hash de senha é scrypt; o Workers não tem scrypt, e o PBKDF2 disponível lá é limitado a 100.000 iterações — que já custam ~100 ms. Publicar ali exigiria **enfraquecer o hash de senha**, que é exatamente o que não se troca por conveniência de deploy.
+- **Express não roda no Workers**: seriam ~4.000 linhas de backend reescritas — reconstrução, não adaptação.
+
+Render roda Node de verdade (Express, cookie `HttpOnly` e scrypt intactos) e Turso fala o dialeto do SQLite, então as 84 consultas da Fase 3 valem letra por letra.
+
+### Banco com dois drivers, um contrato
+
+- `server/db/{index,driverSqlite,driverLibsql}.js` — `consultar` / `consultarUm` / `executar` / `emTransacao`, iguais nos dois. A escolha é por `JORNADA_DB_URL` e acontece uma vez, na abertura; nenhum repositório sabe em qual dos dois está.
+- **Tudo virou assíncrono**, inclusive o driver local (que por dentro continua síncrono). Duas assinaturas para a mesma operação seriam a porta de entrada para uma consulta que funciona num ambiente e quebra no outro.
+- 7 repositórios, rotas, middlewares, serviços e a CLI do piloto convertidos.
+- `autenticar` e `resolverTenant` passaram a ser envolvidos por `rota()`: sem isso, uma falha de banco **dentro do middleware de sessão** ficaria pendurada sem resposta e sem log.
+- `criarApp` ganhou uma trava que segura a primeira requisição até a migração terminar — em hospedagem que hiberna, o serviço acorda já com gente batendo.
+
+### Migração conferida, não confiada
+
+`npm run exportar` e `npm run importar` (novos). O importador recusa destino povoado, carrega numa transação, **confere as contagens de cada tabela** contra o cabeçalho do dump e **confere o isolamento** (nenhuma linha de negócio pode ficar sem empresa dona). Uma migração que termina sem erro mas perde linhas é o pior desfecho, porque parece sucesso.
+
+### Configuração e e-mail
+
+- `validarConfig` passou a aceitar **duas** formas de persistência — banco remoto ou arquivo em volume — e a recusar as duas ausentes. Banco remoto sem token também reprova.
+- Backup em disco deixou de ser exigido quando o banco é remoto: lá não há arquivo para copiar, e cobrar um diretório reprovaria uma configuração correta.
+- Novo modo `JORNADA_EMAIL_MODO=desativado`: publica sem envio, e **diz isso**. Recuperação de senha e convite passam a exigir entrega manual do código. Continua não existindo modo que finja ter enviado.
+- `PORT` (usado pelas plataformas gerenciadas) agora é aceito além de `JORNADA_PORT`.
+
+### Verificação
+
+- **318 testes** no driver SQLite; **135 dos 143 de backend também no driver libSQL** (`JORNADA_DB_DRIVER=libsql`), incluindo isolamento entre empresas, RBAC, segurança, fluxo completo e piloto. Os 8 que não rodam lá são os de backup **por arquivo**, que dependem de `VACUUM INTO`.
+- Migração real executada: 36 linhas exportadas do banco de desenvolvimento e importadas num destino libSQL limpo, com contagens batendo e zero linhas órfãs.
+- Aplicação rodada contra o banco migrado: login, leitura do cadastro, feedback e **acesso cruzado devolvendo 404**.
+- Configuração de produção do Render validada: sobe com as variáveis do `render.yaml`, reprova sem token do banco e sem banco nenhum.
+
+### Preservado
+
+`Dockerfile`, `docker-compose.yml`, `Caddyfile`, `deploy/`, scripts de backup e `DEPLOY.md` continuam inteiros — a Opção B é a saída quando o piloto crescer. A volta está documentada em `DEPLOY_GRATUITO.md` §8 e não exige mudança de código.
+
+### Documentação
+
+**Criados:** `DEPLOY_GRATUITO.md` (limites com números, custos, passo a passo, backup, volta ao Docker), `.env.gratuito.example`, `render.yaml`.
+**Atualizados:** `README.md`, `PILOTO.md`, `DEPLOY.md`, `CHANGELOG.md`.
+
+
 ## Não lançado / não iniciado
 
 Ver [DEPLOY.md](DEPLOY.md) — contratar servidor e domínio e publicar; verificação de e-mail; cópia externa dos backups; integrações reais (Cobli, sistema de ponto); atualização em tempo real; cobrança e planos.

@@ -33,7 +33,14 @@ export function caminhoBanco() {
 
 /** 'libsql' quando há um banco remoto configurado; 'sqlite' no arquivo local. */
 export function modoBanco() {
-  return process.env.JORNADA_DB_URL ? 'libsql' : 'sqlite';
+  if (process.env.JORNADA_DB_URL) return 'libsql';
+  /* `JORNADA_DB_DRIVER=libsql` faz o cliente libSQL abrir o arquivo LOCAL, sem rede.
+   *
+   * Existe para os testes: com esta variável, as mesmas 143 provas de backend rodam contra o
+   * driver que a publicação gratuita usa. Sem isso, o driver remoto só seria exercitado em
+   * produção — que é o pior lugar para descobrir uma diferença de comportamento entre os dois. */
+  if (process.env.JORNADA_DB_DRIVER === 'libsql') return 'libsql';
+  return 'sqlite';
 }
 
 /* O driver remoto é importado sob demanda: quem roda em SQLite (todos os testes, o Docker, o
@@ -42,10 +49,9 @@ export function modoBanco() {
 async function criarDriver() {
   if (modoBanco() === 'libsql') {
     const { criarDriverLibsql } = await import('./driverLibsql.js');
-    return criarDriverLibsql({
-      url: process.env.JORNADA_DB_URL,
-      token: process.env.JORNADA_DB_TOKEN,
-    });
+    /* Sem `JORNADA_DB_URL`, o arquivo local vira uma URL `file:` — o mesmo cliente, sem rede. */
+    const url = process.env.JORNADA_DB_URL || `file:${caminhoBanco()}`;
+    return criarDriverLibsql({ url, token: process.env.JORNADA_DB_TOKEN });
   }
   return criarDriverSqlite(caminhoBanco());
 }

@@ -1,0 +1,73 @@
+# Jornada360 — publicação gratuita (Opção A)
+#
+# Este arquivo descreve o serviço no Render. A alternativa é criar o serviço pela interface web
+# com os mesmos valores; o arquivo existe para que a configuração fique versionada em vez de viver
+# só na memória de quem clicou.
+#
+# O QUE ESTE DESENHO GARANTE
+# --------------------------
+# · Frontend e API na MESMA ORIGEM. O `startCommand` sobe a API, que serve o `dist/` construído no
+#   build. É isso que mantém o cookie de sessão `HttpOnly` funcionando sem `SameSite=None`.
+# · Persistência FORA da máquina. O plano gratuito do Render não tem disco persistente: qualquer
+#   arquivo escrito aqui some no próximo deploy. O banco é o Turso (JORNADA_DB_URL), que vive em
+#   outro lugar — é o que faz os dados sobreviverem a reinícios e deploys.
+# · Cadastro fechado, porque NODE_ENV=production. Ver PILOTO.md.
+#
+# O QUE O PLANO GRATUITO COBRA EM TROCA
+# -------------------------------------
+# O serviço HIBERNA após 15 minutos sem acesso, e a visita seguinte espera cerca de 1 minuto
+# enquanto ele acorda. Não há como desligar isso no plano gratuito. Está documentado em
+# DEPLOY_GRATUITO.md, e o cliente piloto precisa saber disso antes de estranhar.
+
+services:
+  - type: web
+    name: jornada360
+    runtime: node
+    plan: free
+    region: oregon
+    branch: piloto-serverless
+
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+
+    # O Render considera o serviço no ar quando esta rota responde. `/api/saude` responde sem tocar
+    # o banco de propósito: uma lentidão momentânea do banco não pode derrubar um processo saudável.
+    healthCheckPath: /api/saude
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # O Render escolhe a porta e a informa em PORT; o servidor aceita as duas.
+      - key: JORNADA_SERVIR_FRONTEND
+        value: "1"
+
+      # ---- banco (Turso) — os dois valores saem do painel do Turso, e são SEGREDOS
+      - key: JORNADA_DB_URL
+        sync: false
+      - key: JORNADA_DB_TOKEN
+        sync: false
+
+      # ---- endereço público. Preencha com a URL que o Render atribuir (https://jornada360.onrender.com)
+      - key: JORNADA_URL_PUBLICA
+        sync: false
+      - key: JORNADA_CORS_ORIGENS
+        sync: false
+
+      # ---- sessão
+      - key: JORNADA_COOKIE_SEGURO
+        value: "1"
+      # O Render fica atrás de um proxy: sem isto o limite de tentativas veria o IP do proxy em
+      # todas as requisições e trataria o mundo inteiro como uma pessoa só.
+      - key: JORNADA_TRUST_PROXY
+        value: "1"
+
+      # ---- e-mail
+      # "desativado" publica sem envio: recuperação de senha e convite passam a exigir entrega
+      # manual do código, e a interface diz isso. Troque para "smtp" quando tiver um provedor.
+      - key: JORNADA_EMAIL_MODO
+        value: desativado
+      - key: JORNADA_SMTP_URL
+        sync: false
+      - key: JORNADA_EMAIL_REMETENTE
+        sync: false

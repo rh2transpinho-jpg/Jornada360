@@ -104,6 +104,14 @@ O **ambiente de demonstração** funciona sem servidor. Uma **empresa real** exi
 
 ## Publicar
 
+Dois caminhos, do mesmo código. A escolha é de custo e de conforto, não de arquitetura.
+
+**Opção A — gratuita (Render + Turso).** Uma URL pública sem contratar servidor, para o programa
+piloto. R$ 0/mês, sem cartão. Preço: o serviço hiberna após 15 min sem acesso e leva ~1 min para
+acordar. Passo a passo, limites e números em [DEPLOY_GRATUITO.md](DEPLOY_GRATUITO.md).
+
+**Opção B — VPS própria (Docker + Caddy + SQLite).** Sem hibernação, com domínio próprio, ~R$ 30–65/mês:
+
 ```bash
 docker compose up -d --build
 ```
@@ -130,7 +138,8 @@ São 31 verificações contra a URL publicada: HTTPS, cookie, persistência, iso
 | [FRONTEND_BACKEND.md](FRONTEND_BACKEND.md) | Como a interface conversa com o servidor, e o que a decisão custou |
 | [BACKEND.md](BACKEND.md) | API, banco, RBAC, modelo de dados |
 | [SECURITY.md](SECURITY.md) | O que está protegido, como, e o que ainda não está |
-| [DEPLOY.md](DEPLOY.md) | Publicar: do servidor vazio à URL do cliente |
+| [DEPLOY_GRATUITO.md](DEPLOY_GRATUITO.md) | **Publicar sem pagar servidor** (Render + Turso): limites, custos, migração e volta |
+| [DEPLOY.md](DEPLOY.md) | Publicar em VPS própria: do servidor vazio à URL do cliente |
 | [OPERACAO.md](OPERACAO.md) | Plantão: backup, restauração, atualização, o que fazer quando algo quebra |
 | [MIGRACAO_LOCALSTORAGE.md](MIGRACAO_LOCALSTORAGE.md) | Levar ao servidor os dados que ficaram no navegador |
 | [MIGRACAO.md](MIGRACAO.md) | Estado de cada repositório: local, remoto ou preparação |
@@ -147,7 +156,7 @@ São 31 verificações contra a URL publicada: HTTPS, cookie, persistência, iso
 
 **Frontend:** React 19 + TypeScript + Vite. Gráficos com Recharts, ícones com Lucide.
 
-**Backend:** Node + Express + SQLite (`node:sqlite`, embutido — sem compilação nativa). Sessão em cookie `HttpOnly`, senha com scrypt. Duas dependências de runtime no servidor.
+**Backend:** Node + Express. Banco com dois drivers e um contrato único: SQLite local (`node:sqlite`, embutido) ou libSQL/Turso remoto, escolhidos por variável de ambiente — o mesmo SQL nos dois. Sessão em cookie `HttpOnly`, senha com scrypt. Duas dependências de runtime no servidor.
 
 **Testes:** Vitest — **318 no total**: 175 de regra de negócio e interface, 143 de backend (isolamento entre empresas, RBAC, segurança, produção, programa piloto e fluxo completo ponta a ponta).
 
