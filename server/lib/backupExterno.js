@@ -104,23 +104,47 @@ async function autorizar(cfg) {
     headers: { authorization: `Basic ${credencial}` },
   });
   if (!r.ok) {
-    /* A mensagem do B2 NÃO é repassada inteira: ela pode ecoar o keyId.
+    /* Diagnóstico do 401 SEM expor credencial.
      *
-     * O que vai junto é o FORMATO do que foi recebido — comprimentos e presença de espaço. É o
-     * que permite descobrir uma colagem truncada ou o campo errado sem que nenhum valor apareça.
-     * Um keyID do B2 tem 25 caracteres; uma applicationKey tem 31. Quem cola o "keyName" no
-     * lugar do keyID descobre aqui, em vez de num 401 mudo. */
+     * Duas fontes, nenhuma delas secreta:
+     *
+     * 1. O `code` do próprio Backblaze. `bad_auth_token` = credencial não confere;
+     *    `expired_auth_token` = chave expirada; `unauthorized` = chave sem permissão. São
+     *    classificações, não valores. A `message` NÃO é repassada: ela pode ecoar o keyId.
+     *
+     * 2. A FORMA do que chegou em cada variável — comprimento e composição por classe de
+     *    caractere. É o que revela colagem truncada, caractere invisível (zero-width, que o
+     *    `trim()` não remove e nenhum editor mostra) ou o campo errado, sem que um único
+     *    caractere do valor apareça.
+     *
+     * Deliberadamente NÃO existe aqui um comprimento "esperado": afirmar que um keyID tem N
+     * caracteres já custou uma rodada de investigação errada. O que é reportado é o que se
+     * observa, e a comparação com o cadastro é de quem tem acesso ao painel. */
+    let codigoB2 = '(sem código)';
+    try {
+      codigoB2 = JSON.parse(await r.text())?.code ?? codigoB2;
+    } catch {
+      /* corpo não era JSON */
+    }
+
     const forma = (v) => {
-      if (!v) return 'VAZIO';
-      const limpo = v.trim();
-      const aviso = limpo !== v ? ' COM ESPAÇO SOBRANDO' : '';
-      return `${limpo.length} caracteres${aviso}`;
+      if (!v) return 'AUSENTE';
+      const bruto = String(v);
+      const limpo = bruto.trim();
+      const invisiveis = (bruto.match(/[​-‍﻿ ⁠]/g) ?? []).length;
+      const foraDoEsperado = (limpo.match(/[^0-9A-Za-z]/g) ?? []).length;
+      const partes = [`${limpo.length} caracteres`];
+      if (limpo.length !== bruto.length) partes.push(`${bruto.length - limpo.length} de espaço/quebra removidos`);
+      if (invisiveis > 0) partes.push(`${invisiveis} CARACTERE(S) INVISÍVEL(EIS)`);
+      if (foraDoEsperado > 0) partes.push(`${foraDoEsperado} fora de [0-9A-Za-z]`);
+      partes.push(/^[0-9a-f]+$/.test(limpo) ? 'só hexadecimal' : 'alfanumérico misto');
+      return partes.join(', ');
     };
+
     throw new Error(
-      `Backblaze recusou a autenticação (HTTP ${r.status}). ` +
-      `JORNADA_B2_KEY_ID recebeu ${forma(cfg.keyId)} (o esperado são 25); ` +
-      `JORNADA_B2_APP_KEY recebeu ${forma(cfg.appKey)} (o esperado são 31). ` +
-      'Se os tamanhos batem, a chave provavelmente foi revogada ou é de outra conta.',
+      `Backblaze recusou a autenticação (HTTP ${r.status}, código "${codigoB2}"). ` +
+      `JORNADA_B2_KEY_ID: ${forma(cfg.keyId)}. ` +
+      `JORNADA_B2_APP_KEY: ${forma(cfg.appKey)}.`,
     );
   }
   const dados = await r.json();
