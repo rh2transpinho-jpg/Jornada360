@@ -26,6 +26,10 @@ import * as tenants from '../server/repositories/tenantRepository.js';
 import * as usuarios from '../server/repositories/userRepository.js';
 import * as convites from '../server/repositories/conviteRepository.js';
 import { migrar, fecharBanco } from '../server/db/index.js';
+import { carregarEnvLocal } from '../server/lib/env.js';
+
+/* `.env` local (ignorado pelo Git). No Render as variáveis vêm do painel e isto não faz nada. */
+carregarEnvLocal();
 
 await migrar();
 

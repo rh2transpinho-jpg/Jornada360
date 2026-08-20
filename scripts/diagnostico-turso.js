@@ -16,11 +16,22 @@
  * espaço sobrando, se tem o formato de JWT) — o suficiente para diagnosticar sem expor nada.
  * A URL aparece só como esquema + host, sem query string. */
 
+import { carregarEnvLocal } from '../server/lib/env.js';
+
+/* Credencial vem do `.env` local (ignorado pelo Git), nunca da linha de comando: o comando fica
+ * no histórico do shell, o arquivo não. */
+const env = carregarEnvLocal();
+
 const url = process.env.JORNADA_DB_URL;
 const token = process.env.JORNADA_DB_TOKEN;
 
 if (!url || !token) {
-  console.error('\nDefina JORNADA_DB_URL e JORNADA_DB_TOKEN antes de rodar.\n');
+  console.error('\n✗ Faltam as credenciais do Turso.\n');
+  console.error(`  Arquivo de credenciais: ${env.arquivo ?? '(ainda não existe)'}`);
+  if (!url) console.error('    JORNADA_DB_URL   está vazia');
+  if (!token) console.error('    JORNADA_DB_TOKEN está vazia');
+  console.error('\n  Cole os dois valores no arquivo .env na raiz do projeto (ele é ignorado pelo Git).');
+  console.error('  Não passe credencial na linha de comando: o comando fica no histórico do shell.\n');
   process.exit(1);
 }
 

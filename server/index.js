@@ -12,6 +12,10 @@ import { caminhoBanco, fecharBanco } from './db/index.js';
 import { carregarConfig, exigirConfigValida } from './config.js';
 import { agendarBackupAutomatico } from './lib/backup.js';
 import { log } from './lib/log.js';
+import { carregarEnvLocal } from './lib/env.js';
+
+/* `.env` local (ignorado pelo Git). No Render as variáveis vêm do painel e isto não faz nada. */
+carregarEnvLocal();
 
 const config = carregarConfig();
 
