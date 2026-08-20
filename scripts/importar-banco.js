@@ -19,10 +19,10 @@
  *     multiempresa, dado sem dono é dado que pode aparecer para a empresa errada. */
 import { readFileSync } from 'node:fs';
 import { bd, consultarUm, consultar, fecharBanco, migrar, modoBanco } from '../server/db/index.js';
-import { carregarEnvLocal } from '../server/lib/env.js';
+import { carregarCredenciais } from '../server/lib/env.js';
 
 /* `.env` local (ignorado pelo Git). No Render as variáveis vêm do painel e isto não faz nada. */
-carregarEnvLocal();
+carregarCredenciais();
 
 const argumentos = process.argv.slice(2);
 const arquivo = argumentos.find((a) => !a.startsWith('--'));

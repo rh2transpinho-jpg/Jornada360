@@ -7,10 +7,10 @@
 import { executarBackupExterno, sincronizarAlertas } from '../server/lib/infraestrutura.js';
 import { migrar, fecharBanco } from '../server/db/index.js';
 import { b2Configurado, configuracaoB2 } from '../server/lib/backupExterno.js';
-import { carregarEnvLocal } from '../server/lib/env.js';
+import { carregarCredenciais } from '../server/lib/env.js';
 
 /* `.env` local (ignorado pelo Git). No Render as variáveis vêm do painel e isto não faz nada. */
-carregarEnvLocal();
+carregarCredenciais();
 
 await migrar();
 

@@ -16,11 +16,11 @@
  * espaço sobrando, se tem o formato de JWT) — o suficiente para diagnosticar sem expor nada.
  * A URL aparece só como esquema + host, sem query string. */
 
-import { carregarEnvLocal } from '../server/lib/env.js';
+import { carregarCredenciais } from '../server/lib/env.js';
 
 /* Credencial vem do `.env` local (ignorado pelo Git), nunca da linha de comando: o comando fica
  * no histórico do shell, o arquivo não. */
-const env = carregarEnvLocal();
+const env = carregarCredenciais();
 
 const url = process.env.JORNADA_DB_URL;
 const token = process.env.JORNADA_DB_TOKEN;

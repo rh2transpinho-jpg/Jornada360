@@ -21,6 +21,31 @@ import { fileURLToPath } from 'node:url';
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+/* Onde a credencial mora, em ordem de preferência.
+ *
+ * FORA DO PROJETO VEM PRIMEIRO, e a razão é concreta: qualquer arquivo dentro da pasta do
+ * projeto é lido por ferramentas que acompanham o repositório — editores, indexadores, e
+ * assistentes que mostram o que mudou. Um token colado ali reaparece em transcrição toda vez que
+ * o arquivo é salvo, mesmo estando no `.gitignore`. O `.gitignore` protege o Git, não o resto.
+ *
+ * A pasta do usuário não é acompanhada por nada disso. É o lugar certo para segredo em máquina
+ * de desenvolvimento. */
+export function caminhosDeCredencial() {
+  const lar = process.env.USERPROFILE || process.env.HOME || '';
+  return [
+    lar ? join(lar, '.jornada360', 'credenciais.env') : null,
+    join(RAIZ, '.env'),
+  ].filter(Boolean);
+}
+
+export function carregarCredenciais() {
+  for (const caminho of caminhosDeCredencial()) {
+    const r = carregarEnvLocal(caminho);
+    if (r.carregadas > 0) return r;
+  }
+  return { carregadas: 0, arquivo: null };
+}
+
 export function carregarEnvLocal(caminho = join(RAIZ, '.env')) {
   if (!existsSync(caminho)) return { carregadas: 0, arquivo: null };
 

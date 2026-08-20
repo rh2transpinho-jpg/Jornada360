@@ -22,10 +22,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { consultar, fecharBanco, modoBanco, caminhoBanco } from '../server/db/index.js';
 import { migrar } from '../server/db/index.js';
-import { carregarEnvLocal } from '../server/lib/env.js';
+import { carregarCredenciais } from '../server/lib/env.js';
 
 /* `.env` local (ignorado pelo Git). No Render as variáveis vêm do painel e isto não faz nada. */
-carregarEnvLocal();
+carregarCredenciais();
 
 /* Ordem importa: uma tabela nunca é inserida antes daquela de que ela depende. Com as chaves
  * estrangeiras ligadas no destino, a ordem errada faz a importação falhar no meio. */
