@@ -40,7 +40,17 @@ export function criarApp(configExterna) {
    * Não é detalhe: em hospedagem gratuita o serviço hiberna e acorda já com gente batendo na
    * porta. Sem esta trava, a requisição que acorda o serviço consultaria uma tabela ainda não
    * criada e o cliente veria um erro no exato momento em que o sistema estava subindo. */
-  app.use((_req, _res, proximo) => {
+  /* `/api/saude` FICA DE FORA desta trava, e isso é o ponto.
+   *
+   * A saúde existe para dizer se o PROCESSO está vivo, sem tocar no banco — é ela que o Render
+   * consulta para decidir se reinicia o serviço. Deixá-la depender da migração inverteu o
+   * significado: com o banco inacessível, a saúde passou a responder 500 e o orquestrador
+   * concluía que o processo estava morto, quando o processo estava perfeitamente vivo e só o
+   * banco não respondia. Descoberto em produção, com todas as rotas em 500 ao mesmo tempo.
+   *
+   * Quem diz a verdade sobre o banco é `/api/prontidao`, que toca nele de propósito. */
+  app.use((req, _res, proximo) => {
+    if (req.path === '/api/saude') return proximo();
     garantirMigrado().then(() => proximo(), proximo);
   });
 
