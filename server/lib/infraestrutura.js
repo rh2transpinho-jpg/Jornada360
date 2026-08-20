@@ -215,9 +215,27 @@ export async function testarRestauracaoExterna(arquivo, cfg = b2.configuracaoB2(
       for (const t of ['users', 'tenants', 'memberships', 'he_ocorrencias']) {
         contagens[t] = db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
       }
-      /* Validação estrutural: um backup sem empresa nem usuário não serve para restaurar nada. */
-      if (contagens.tenants === 0 && contagens.users === 0) {
-        throw new Error('O backup restaurou vazio — nenhuma empresa e nenhum usuário.');
+      /* VALIDAÇÃO ESTRUTURAL: o backup restaurado precisa ter o que o backup DIZ que tem.
+       *
+       * Antes, esta checagem reprovava qualquer backup sem empresa nem usuário — e isso estava
+       * errado. Uma produção recém-publicada, ainda sem o primeiro cliente, gera legitimamente um
+       * backup vazio; reprovar aquilo é alarme falso, e alarme falso treina a pessoa a ignorar o
+       * painel. Aconteceu na primeira restauração real deste sistema.
+       *
+       * A comparação certa é contra as contagens que o próprio dump declarou na hora em que foi
+       * gerado. Ela é mais forte, não mais frouxa: pega restauração PARCIAL — um backup que diz
+       * ter 40 empresas e restaura 12 é reprovado, coisa que a checagem anterior deixava passar. */
+      const declarado = sql.match(/^-- contagens: (.+)$/m);
+      if (declarado) {
+        const esperado = JSON.parse(declarado[1]);
+        for (const [tabela, n] of Object.entries(contagens)) {
+          if (esperado[tabela] !== undefined && esperado[tabela] !== n) {
+            throw new Error(
+              `Restauração INCOMPLETA em "${tabela}": o backup declara ${esperado[tabela]} linha(s) e restaurou ${n}.`,
+            );
+          }
+        }
+        contagens.origemDeclarada = Object.values(esperado).reduce((a, b) => a + b, 0);
       }
     } finally {
       try {
