@@ -144,6 +144,26 @@ export function criarApp(configExterna) {
       relatorio.componentes.banco = { ok: false, erro: bruto, diagnostico, modo: modoBanco() };
     }
 
+    /* IDENTIDADE DA HOSPEDAGEM — quem é o serviço que está respondendo.
+     *
+     * O Render injeta estas variáveis em todo serviço que ele executa. Elas não são credencial:
+     * são o nome, o id e o commit do próprio serviço — a mesma informação que aparece no painel
+     * de quem já tem acesso a ele.
+     *
+     * Existe porque um serviço publicado pode ficar impossível de localizar no painel (nome
+     * diferente do esperado, workspace errado, criado por outro caminho). Perguntar ao processo
+     * "quem é você?" é mais confiável do que procurar numa lista. Fora do Render, some. */
+    const hospedagem = {
+      plataforma: process.env.RENDER ? 'render' : 'desconhecida',
+      servico: process.env.RENDER_SERVICE_NAME ?? null,
+      servicoId: process.env.RENDER_SERVICE_ID ?? null,
+      urlExterna: process.env.RENDER_EXTERNAL_URL ?? null,
+      commit: (process.env.RENDER_GIT_COMMIT ?? '').slice(0, 7) || null,
+      branch: process.env.RENDER_GIT_BRANCH ?? null,
+      repositorio: process.env.RENDER_GIT_REPO_SLUG ?? null,
+    };
+    if (hospedagem.plataforma !== 'desconhecida') relatorio.hospedagem = hospedagem;
+
     const email = await verificarEmail(config);
     relatorio.componentes.email = email;
     /* E-mail indisponível não derruba o sistema — só impede recuperação de senha e convite.
