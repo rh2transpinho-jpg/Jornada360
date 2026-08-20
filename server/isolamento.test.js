@@ -213,8 +213,16 @@ describe('ISOLAMENTO — dados operacionais', () => {
     };
     await req('PUT', `/api/tenants/${tenantA}/pendencias/pend-a-1`, { token: tokenA, corpo: p });
 
-    expect((await req('GET', `/api/tenants/${tenantA}/pendencias`, { token: tokenA })).corpo).toHaveLength(1);
-    expect((await req('GET', `/api/tenants/${tenantB}/pendencias`, { token: tokenB })).corpo).toHaveLength(0);
+    /* O que este teste prova é ISOLAMENTO, não uma contagem exata: A enxerga a pendência que
+     * criou, e B não enxerga NADA de A. Fixar "exatamente 1" tornava o teste refém de qualquer
+     * pendência que o sistema passasse a gerar sozinho — foi o que aconteceu quando a HE sem
+     * justificativa passou a abrir a própria pendência automaticamente. */
+    const daA = (await req('GET', `/api/tenants/${tenantA}/pendencias`, { token: tokenA })).corpo;
+    expect(daA.some((x) => x.id === 'pend-a-1')).toBe(true);
+
+    const daB = (await req('GET', `/api/tenants/${tenantB}/pendencias`, { token: tokenB })).corpo;
+    expect(daB.some((x) => x.id === 'pend-a-1')).toBe(false);
+    expect(daB).toHaveLength(0);
   });
 
   it('auditoria fica separada por tenant', async () => {

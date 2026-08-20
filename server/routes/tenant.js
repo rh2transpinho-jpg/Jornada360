@@ -19,6 +19,7 @@ import { auditar } from '../services/auditService.js';
 import { enviarEmail, mensagemConvite } from '../lib/email.js';
 import { carregarConfig } from '../config.js';
 import * as piloto from '../repositories/pilotoRepository.js';
+import * as he from '../repositories/heRepository.js';
 
 export const tenantRouter = Router({ mergeParams: true });
 
@@ -276,8 +277,23 @@ tenantRouter.put('/dias/:dateKey', exigirPermissao(P.DADOS_ESCREVER), rota(async
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Snapshot do dia inválido.' });
   }
   const dia = await operacao.salvarDia(req.tenantId, req.params.dateKey, snapshot, caseState);
+
+  /* As ocorrências de HE do dia são materializadas AQUI, junto com a gravação — não numa rotina
+   * separada que alguém pode esquecer de chamar. `sincronizarDia` só atualiza os números; a
+   * justificativa já registrada continua onde está (ver heRepository). */
+  const sincronia = await he.sincronizarDia(req.tenantId, req.params.dateKey, snapshot);
+  await he.gerarPendencias(req.tenantId);
+
   auditar(req, { entidade: `Dia ${req.params.dateKey}`, acao: 'Dia processado gravado', valorNovo: `${snapshot.items.length} registro(s)` });
-  res.json(dia);
+  if (sincronia.recalculadas > 0) {
+    auditar(req, {
+      entidade: `Dia ${req.params.dateKey}`,
+      acao: 'HE recalculada após análise',
+      valorNovo: `${sincronia.recalculadas} ocorrência(s) já justificada(s) tiveram o número alterado`,
+      motivo: 'A justificativa foi preservada.',
+    });
+  }
+  res.json({ ...dia, he: sincronia });
 }));
 
 tenantRouter.patch('/dias/:dateKey/casos/:chave', exigirPermissao(P.PENDENCIA_TRATAR), rota(async (req, res) => {
@@ -392,6 +408,84 @@ tenantRouter.post('/exportacoes', exigirPermissao(P.RELATORIO_EXPORTAR), rota(as
   res.status(201).json({ ok: true });
 }));
 
+/* ---------------------------------------------------------------- horas extras */
+
+/* Toda rota daqui filtra por `req.tenantId`, que vem da sessão — nunca do cliente. É o mesmo
+ * isolamento do resto do sistema, e os testes de HE conferem isso explicitamente. */
+
+tenantRouter.get('/he', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(await he.listar(req.tenantId, req.query));
+}));
+
+tenantRouter.get('/he/resumo', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(await he.resumo(req.tenantId, req.query));
+}));
+
+/* Motivos e origens configuráveis por empresa (requisitos 4 e 5). */
+tenantRouter.get('/he/listas', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(await he.listasDaEmpresa(req.tenantId));
+}));
+
+tenantRouter.put('/he/listas', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => gravarCadastro(req, res, async () => {
+  const salvo = await he.salvarListas(req.tenantId, req.body ?? {});
+  auditar(req, { entidade: 'Motivos e origens de HE', acao: 'Listas de HE atualizadas', valorNovo: `${salvo.motivos.length} motivo(s), ${salvo.origens.length} origem(ns)` });
+  res.json(salvo);
+})));
+
+/* Histórico de HE de um colaborador (requisito 7). O nome vai na URL já normalizado pelo
+ * repositório, então "Alex", "alex" e "ALEX" chegam ao mesmo lugar. */
+tenantRouter.get('/he/colaborador/:nome', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(await he.porColaborador(req.tenantId, req.params.nome, req.query));
+}));
+
+tenantRouter.get('/he/:id', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  const o = await he.obter(req.tenantId, req.params.id);
+  /* 404 e não 403: uma ocorrência de outra empresa não deve nem confirmar que existe. */
+  if (!o) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Ocorrência não encontrada.' });
+  res.json({ ...o, historico: await he.historico(req.tenantId, req.params.id) });
+}));
+
+tenantRouter.put('/he/:id/justificativa', exigirPermissao(P.PENDENCIA_TRATAR), rota(async (req, res) => {
+  const dados = req.body ?? {};
+  if (!dados.motivo || !String(dados.justificativa ?? '').trim()) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe o motivo e a justificativa.' });
+  }
+
+  const antes = await he.obter(req.tenantId, req.params.id);
+  if (!antes) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Ocorrência não encontrada.' });
+
+  /* O responsável vem da SESSÃO, nunca do corpo: quem assina a justificativa é quem está
+   * logado — é o mesmo princípio que já vale para a trilha de auditoria. */
+  const salvo = await he.registrarJustificativa(req.tenantId, req.params.id, dados, req.usuario);
+
+  auditar(req, {
+    entidade: `HE ${antes.colaborador} — ${antes.data}`,
+    acao: antes.justificativa ? 'Justificativa de HE alterada' : 'Justificativa de HE registrada',
+    valorAnterior: antes.justificativa ? `${antes.motivo ?? ''} — ${antes.justificativa}` : '',
+    valorNovo: `${dados.motivo} — ${dados.justificativa}`,
+    motivo: `Status: ${he.ROTULO_STATUS[salvo.status] ?? salvo.status}`,
+  });
+
+  res.json(salvo);
+}));
+
+/* Relatório de HE, incluindo o recorte "sem justificativa" (requisito 11). */
+tenantRouter.get('/he/relatorio/csv', exigirPermissao(P.RELATORIO_EXPORTAR), rota(async (req, res) => {
+  const linhas = await he.listar(req.tenantId, req.query);
+  const cabecalho = ['Colaborador', 'Data', 'HE (min)', 'Motivo', 'Justificativa', 'Origem', 'Status', 'Responsável'];
+  const escapar = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cabecalho.join(';')]
+    .concat(linhas.map((o) => [
+      o.colaborador, o.data, o.heMin, o.motivo ?? '', o.justificativa ?? '',
+      o.origem ?? '', he.ROTULO_STATUS[o.status] ?? o.status, o.responsavel ?? '',
+    ].map(escapar).join(';')))
+    .join('\n');
+
+  auditar(req, { entidade: 'Relatório de horas extras', acao: 'Relatório exportado', valorNovo: `${linhas.length} linha(s)` });
+  res.set('content-type', 'text/csv; charset=utf-8');
+  res.send('\uFEFF' + csv);
+}));
+
 /* ---------------------------------------------------------------- feedback do piloto */
 
 /* Qualquer pessoa com acesso à empresa pode relatar — inclusive quem só lê.
@@ -446,6 +540,11 @@ tenantRouter.post('/importar', exigirPermissao(P.DADOS_ESCREVER), rota(async (re
     await operacao.salvarDia(req.tenantId, d.dateKey, d.snapshot, d.caseState ?? {});
     diasGravados += 1;
   }
+
+  for (const d of dias) {
+    if (d?.dateKey && d?.snapshot?.items) await he.sincronizarDia(req.tenantId, d.dateKey, d.snapshot);
+  }
+  await he.gerarPendencias(req.tenantId);
 
   let pendenciasGravadas = 0;
   for (const p of pendencias) {
