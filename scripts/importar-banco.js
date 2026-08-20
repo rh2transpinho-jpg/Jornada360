@@ -37,6 +37,7 @@ if (!arquivo) {
 const TABELAS_DE_EMPRESA = [
   'companies', 'units', 'departments', 'schedules', 'employees', 'workspace_rules',
   'integration_configs', 'time_records', 'pendings', 'audit_log', 'invites', 'feedback',
+  'he_ocorrencias', 'he_historico',
 ];
 
 const conteudo = readFileSync(arquivo, 'utf8');

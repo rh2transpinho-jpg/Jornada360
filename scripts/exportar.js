@@ -27,28 +27,16 @@ import { carregarCredenciais } from '../server/lib/env.js';
 /* `.env` local (ignorado pelo Git). No Render as variáveis vêm do painel e isto não faz nada. */
 carregarCredenciais();
 
-/* Ordem importa: uma tabela nunca é inserida antes daquela de que ela depende. Com as chaves
- * estrangeiras ligadas no destino, a ordem errada faz a importação falhar no meio. */
-const TABELAS = [
-  'users',
-  'tenants',
-  'memberships',
-  'companies',
-  'units',
-  'departments',
-  'schedules',
-  'employees',
-  'workspace_rules',
-  'integration_configs',
-  'time_records',
-  'pendings',
-  'audit_log',
-  'invites',
-  'sessions',
-  'password_resets',
-  'feedback',
-  'schema_migrations',
-];
+/* A lista de tabelas e a ORDEM delas vem de server/lib/infraestrutura.js — fonte unica.
+ *
+ * Este arquivo tinha a propria copia, e ela ficou para tras quando as tabelas de HE nasceram:
+ * o backup manual saia SEM nenhuma justificativa, parecendo completo. Duas listas para a mesma
+ * coisa so ficam iguais ate a primeira tabela nova. */
+import { TABELAS as TABELAS_DE_NEGOCIO } from '../server/lib/infraestrutura.js';
+
+/* `schema_migrations` entra so na CONTAGEM: o destino aplica as proprias migrations antes da
+ * carga, e reinseri-las quebraria a chave primaria. */
+const TABELAS = [...TABELAS_DE_NEGOCIO, 'schema_migrations'];
 
 function literal(v) {
   if (v === null || v === undefined) return 'NULL';

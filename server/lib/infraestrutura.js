@@ -9,12 +9,23 @@ import { novoId } from './seguranca.js';
 import { log } from './log.js';
 import * as b2 from './backupExterno.js';
 
-/* Tabelas exportadas, na ordem em que podem ser reinseridas sem violar chave estrangeira. */
-const TABELAS = [
+/* Tabelas exportadas, NA ORDEM EM QUE PODEM SER REINSERIDAS sem violar chave estrangeira.
+ *
+ * ESTA É A ÚNICA LISTA. `scripts/exportar.js` importa daqui — ele tinha a própria cópia, que
+ * ficou para trás quando as tabelas de HE nasceram, e por isso o backup manual estava saindo SEM
+ * nenhuma justificativa. Perder a explicação de uma hora extra e manter o número é o pior tipo
+ * de perda: o backup parece completo.
+ *
+ * A ORDEM NÃO É ALFABÉTICA NEM ARBITRÁRIA. `he_ocorrencias` precisa vir antes de `pendings`,
+ * porque uma pendência de HE aponta para a ocorrência; e `he_historico` vem logo depois da
+ * ocorrência, pelo mesmo motivo. Isso foi descoberto por uma restauração real que falhou com
+ * "FOREIGN KEY constraint failed" — quem acrescentar tabela aqui precisa pensar na ordem. */
+export const TABELAS = [
   'users', 'tenants', 'memberships', 'companies', 'units', 'departments', 'schedules',
-  'employees', 'workspace_rules', 'integration_configs', 'time_records', 'pendings',
-  'audit_log', 'invites', 'sessions', 'password_resets', 'feedback',
+  'employees', 'workspace_rules', 'integration_configs', 'time_records',
   'he_ocorrencias', 'he_historico',
+  'pendings',
+  'audit_log', 'invites', 'sessions', 'password_resets', 'feedback',
 ];
 
 function literal(v) {

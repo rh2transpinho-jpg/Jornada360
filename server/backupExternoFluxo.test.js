@@ -109,10 +109,33 @@ beforeAll(async () => {
     body: JSON.stringify({ email: 'dono@fluxo.test', nome: 'Dona do Fluxo', senha: 'senha-forte-fx1', nomeEmpresa: 'Empresa do Fluxo' }),
   });
   const { token, tenants } = await r.json();
+  const cabecalhos = { 'content-type': 'application/json', 'x-jornada-cliente': 'api', authorization: `Bearer ${token}` };
   await fetch(`${base}/api/tenants/${tenants[0].id}/colaboradores`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-jornada-cliente': 'api', authorization: `Bearer ${token}` },
+    method: 'POST', headers: cabecalhos,
     body: JSON.stringify({ nome: 'Colaborador do Fluxo', matricula: 'FX-1' }),
+  });
+
+  /* Um dia com HE — isto cria uma ocorrência E uma pendência que APONTA para ela.
+   *
+   * É o caso que quebrou a primeira restauração real: a exportação listava `pendings` antes de
+   * `he_ocorrencias`, e a carga falhava com "FOREIGN KEY constraint failed". Sem uma pendência
+   * ligada a uma ocorrência, o teste passava e o defeito só aparecia no dia do desastre. */
+  await fetch(`${base}/api/tenants/${tenants[0].id}/dias/2026-07-22`, {
+    method: 'PUT', headers: cabecalhos,
+    body: JSON.stringify({
+      snapshot: {
+        dateKey: '2026-07-22', dateLabel: '22/07/2026',
+        items: [{
+          motorista: 'Alex do Fluxo', he1min: 130, he1str: '02:10', status: 'forte',
+          rastreioStatus: 'forte', detalhe: '', confirmadas: '06:00-18:10', batidas: '',
+          contexto: '', padraoStatus: 'acima', padraoMin: 600, excedenteMin: 130,
+          padraoDebug: '', padraoHorarios: ['06:00', '16:00'], setorAtual: '', causaAtual: null,
+          causaFonte: null, interjornada: '', diaAjustado: 0, temLacuna: false, precisaVerificar: false,
+        }],
+        totalHE: 130, acimaHE: 130, programadoHE: 0, semPadraoCount: 0, avisoPadrao: '',
+      },
+      caseState: {},
+    }),
   });
 });
 
@@ -165,6 +188,9 @@ describe('ciclo completo: cifra, sobe, baixa, decifra, restaura', () => {
     expect(r.hash).toBe(enviado.hash);
     expect(r.contagens.tenants).toBeGreaterThanOrEqual(1);
     expect(r.contagens.users).toBeGreaterThanOrEqual(1);
+    /* A ocorrência de HE precisa voltar: é onde vivem as justificativas, o dado mais caro de
+     * reconstruir se for perdido. */
+    expect(r.contagens.he_ocorrencias).toBeGreaterThanOrEqual(1);
   });
 
   it('a restauração RECUSA um arquivo adulterado no bucket', async () => {
