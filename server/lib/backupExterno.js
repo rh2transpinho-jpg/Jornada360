@@ -104,8 +104,24 @@ async function autorizar(cfg) {
     headers: { authorization: `Basic ${credencial}` },
   });
   if (!r.ok) {
-    /* A mensagem do B2 NÃO é repassada inteira: ela pode ecoar o keyId. */
-    throw new Error(`Backblaze recusou a autenticação (HTTP ${r.status}). Confira JORNADA_B2_KEY_ID e JORNADA_B2_APP_KEY.`);
+    /* A mensagem do B2 NÃO é repassada inteira: ela pode ecoar o keyId.
+     *
+     * O que vai junto é o FORMATO do que foi recebido — comprimentos e presença de espaço. É o
+     * que permite descobrir uma colagem truncada ou o campo errado sem que nenhum valor apareça.
+     * Um keyID do B2 tem 25 caracteres; uma applicationKey tem 31. Quem cola o "keyName" no
+     * lugar do keyID descobre aqui, em vez de num 401 mudo. */
+    const forma = (v) => {
+      if (!v) return 'VAZIO';
+      const limpo = v.trim();
+      const aviso = limpo !== v ? ' COM ESPAÇO SOBRANDO' : '';
+      return `${limpo.length} caracteres${aviso}`;
+    };
+    throw new Error(
+      `Backblaze recusou a autenticação (HTTP ${r.status}). ` +
+      `JORNADA_B2_KEY_ID recebeu ${forma(cfg.keyId)} (o esperado são 25); ` +
+      `JORNADA_B2_APP_KEY recebeu ${forma(cfg.appKey)} (o esperado são 31). ` +
+      'Se os tamanhos batem, a chave provavelmente foi revogada ou é de outra conta.',
+    );
   }
   const dados = await r.json();
   const api = dados.apiInfo?.storageApi ?? dados;
