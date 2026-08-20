@@ -39,3 +39,8 @@ coverage
 backups/
 *.sql.gz
 jornada360-export-*.sql
+
+# Chave de criptografia do backup externo. Gerada por `npm run gerar-chave-backup`, copiada para
+# o Render e apagada. Se entrar no Git, todo backup no Backblaze passa a ser decifrável por quem
+# tiver acesso ao repositório.
+CHAVE-BACKUP-*.txt

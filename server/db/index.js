@@ -112,6 +112,7 @@ const MIGRACOES = [
   { versao: 3, arquivo: '003_fase5.sql' },
   { versao: 4, arquivo: '004_piloto.sql' },
   { versao: 5, arquivo: '005_horas_extras.sql' },
+  { versao: 6, arquivo: '006_infraestrutura.sql' },
 ];
 
 /* Executa o schema. É idempotente (todo CREATE usa IF NOT EXISTS) e registra a versão aplicada,

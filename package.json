@@ -24,7 +24,10 @@
     "piloto": "node scripts/piloto.js",
     "exportar": "node scripts/exportar.js",
     "importar": "node scripts/importar-banco.js",
-    "diagnostico-turso": "node scripts/diagnostico-turso.js"
+    "diagnostico-turso": "node scripts/diagnostico-turso.js",
+    "backup-externo": "node scripts/backup-externo.js",
+    "restaurar-externo": "node scripts/restaurar-externo.js",
+    "gerar-chave-backup": "node scripts/gerar-chave-backup.js"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

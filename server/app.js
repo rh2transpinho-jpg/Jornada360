@@ -150,6 +150,18 @@ export function criarApp(configExterna) {
 
   /* ---------------------------------------------------------------- API */
 
+  /* Painel de Segurança e Backup (requisito 24). Exige sessão, mas NÃO é por empresa: descreve o
+   * SISTEMA. Por isso não devolve nada de nenhum cliente — só carimbos, tamanhos e se cada peça
+   * está configurada. Nunca segredo: nem chave, nem keyId, nem URL de banco. */
+  app.get('/api/infraestrutura', autenticar, async (_req, res, next) => {
+    try {
+      const { painelInfraestrutura } = await import('./lib/infraestrutura.js');
+      res.json(await painelInfraestrutura(config));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   app.use('/api/auth', authRouter);
 
   /* A ordem aqui É a segurança: autenticar → resolver tenant (valida membership) → rotas.
