@@ -126,7 +126,22 @@ export function criarApp(configExterna) {
       };
     } catch (e) {
       relatorio.ok = false;
-      relatorio.componentes.banco = { ok: false, erro: e.message };
+      /* A mensagem crua do cliente libSQL é "SERVER_ERROR: HTTP status 400" — verdadeira e
+       * inútil. Quem lê isto às 3h da manhã precisa saber ONDE mexer, não qual código HTTP veio.
+       *
+       * O 400 do Turso quase sempre é credencial: token revogado, expirado ou de outro banco.
+       * Um token AUSENTE dá 401; um banco inexistente dá 404. A distinção é o que transforma
+       * "está quebrado" em "troque a variável X". Nenhum valor de credencial é exposto aqui. */
+      const bruto = String(e?.message ?? e);
+      const diagnostico = /400/.test(bruto)
+        ? 'CREDENCIAL — o banco recusou a requisição. Quase sempre é JORNADA_DB_TOKEN revogado, expirado ou de outro banco. Confira a variável no serviço (não no Environment Group).'
+        : /401|unauthorized|empty JWT/i.test(bruto)
+          ? 'CREDENCIAL AUSENTE — JORNADA_DB_TOKEN não chegou ao processo.'
+          : /404|not found/i.test(bruto)
+            ? 'ENDEREÇO — JORNADA_DB_URL não aponta para um banco existente.'
+            : 'INDEFINIDO — ver o log do servidor.';
+
+      relatorio.componentes.banco = { ok: false, erro: bruto, diagnostico, modo: modoBanco() };
     }
 
     const email = await verificarEmail(config);
