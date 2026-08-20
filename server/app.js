@@ -49,8 +49,14 @@ export function criarApp(configExterna) {
    * banco não respondia. Descoberto em produção, com todas as rotas em 500 ao mesmo tempo.
    *
    * Quem diz a verdade sobre o banco é `/api/prontidao`, que toca nele de propósito. */
+  /* `/api/prontidao` sai pelo mesmo motivo, e o motivo é ainda mais forte: ela existe para
+   * DIAGNOSTICAR o banco. Bloqueá-la quando o banco falha significa que a ferramenta de
+   * diagnóstico só funciona quando não há o que diagnosticar. Ela já trata a falha por dentro e
+   * responde 503 dizendo qual componente caiu — que é a informação que se precisa às 3h da manhã. */
+  const SEM_TRAVA = new Set(['/api/saude', '/api/prontidao']);
+
   app.use((req, _res, proximo) => {
-    if (req.path === '/api/saude') return proximo();
+    if (SEM_TRAVA.has(req.path)) return proximo();
     garantirMigrado().then(() => proximo(), proximo);
   });
 
