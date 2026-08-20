@@ -44,7 +44,7 @@ writeFileSync(destino, [
   '3. Depois de copiar para o Render, apague este arquivo.',
   '4. NÃO use esta chave em nenhum outro sistema (RH360 tem a dele).',
   '',
-], { encoding: 'utf8', flag: 'wx' });
+].join('\n'), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
 
 console.log(`\n✓ Chave gerada em: ${destino}`);
 console.log('  Ela NÃO foi impressa aqui de propósito — abra o arquivo, copie para o Render e apague.\n');

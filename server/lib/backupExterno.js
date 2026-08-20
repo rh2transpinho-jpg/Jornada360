@@ -82,7 +82,13 @@ export function configuracaoB2(env = process.env) {
   return {
     keyId: env.JORNADA_B2_KEY_ID || '',
     appKey: env.JORNADA_B2_APP_KEY || '',
-    bucket: env.JORNADA_B2_BUCKET || 'jornada360-backups',
+    /* SEM PADRÃO, de propósito. Um nome de bucket "de fábrica" faria o sistema tentar enviar
+     * backup para um bucket que talvez não seja seu — e falhar com um erro do Backblaze que não
+     * explica que a variável simplesmente não foi preenchida. Sem `JORNADA_B2_BUCKET`, o backup
+     * externo se declara não configurado, que é a verdade.
+     *
+     * Nomes de bucket são globais no Backblaze: o seu provavelmente inclui algo que o torne único. */
+    bucket: env.JORNADA_B2_BUCKET || '',
     chave: env.JORNADA_BACKUP_CHAVE || '',
     prefixo: env.JORNADA_B2_PREFIXO || 'jornada360',
   };
