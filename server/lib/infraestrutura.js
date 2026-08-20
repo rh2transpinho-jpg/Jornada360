@@ -361,3 +361,74 @@ export async function sincronizarAlertas(tenantOperador = process.env.JORNADA_TE
 
   return { criados, resolvidos, ativos: [...ativos] };
 }
+
+/* ---------------------------------------------------------------- agendamento */
+
+/* Backup externo automático, disparado na SUBIDA do processo.
+ *
+ * POR QUE NA SUBIDA, E NÃO SÓ POR CRONÔMETRO: no plano gratuito o serviço hiberna depois de
+ * quinze minutos sem acesso. Um `setInterval` de 12h dorme junto e simplesmente nunca dispara —
+ * o backup "automático" existiria só no papel. Já a subida acontece toda vez que alguém abre o
+ * sistema, que é exatamente quando há algo novo para copiar.
+ *
+ * A TRAVA DE INTERVALO é o que impede o excesso: se já existe backup bem-sucedido recente, a
+ * subida não gera outro. Sem ela, num dia de uso normal o serviço acorda dezenas de vezes e
+ * encheria o bucket com cópias idênticas.
+ *
+ * Depois do backup, a RESTAURAÇÃO é testada contra o arquivo recém-enviado. Backup que nunca foi
+ * restaurado é esperança, não backup — e testar só de vez em quando adia a descoberta de que a
+ * cópia não presta para o dia em que ela é a única coisa que resta.
+ *
+ * Nada aqui derruba o servidor: tudo roda depois de a porta já estar escutando, e as duas funções
+ * chamadas devolvem `{ ok: false }` em vez de lançar. */
+export function agendarBackupExterno({ intervaloHoras = 12, atrasoInicialMs = 20_000 } = {}) {
+  if (!b2.b2Configurado()) {
+    log.aviso('backup externo DESLIGADO — variáveis do Backblaze não configuradas');
+    return () => {};
+  }
+
+  let rodando = false;
+
+  const executar = async (motivo) => {
+    if (rodando) return;
+    rodando = true;
+    try {
+      const ultimo = await ultimoEvento('backup_externo');
+      const horas = ultimo?.resultado === 'ok'
+        ? (Date.now() - new Date(ultimo.criadoEm).getTime()) / 3600_000
+        : Infinity;
+
+      if (horas < intervaloHoras) {
+        log.info('backup externo ainda recente, pulando', { horasDesdeUltimo: Number(horas.toFixed(1)) });
+      } else {
+        log.info('backup externo iniciando', { motivo });
+        const r = await executarBackupExterno();
+        if (r.ok) {
+          /* Testa a restauração do arquivo que ACABOU de subir. */
+          const t = await testarRestauracaoExterna(r.arquivo);
+          log.info('restauração testada', { ok: t.ok, arquivo: r.arquivo });
+        }
+      }
+
+      await sincronizarAlertas();
+    } catch (e) {
+      /* Rede indisponível, credencial trocada, bucket removido — nada disso pode derrubar o
+       * processo que está atendendo usuários. */
+      log.erro('rotina de backup externo falhou', { erro: e.message });
+    } finally {
+      rodando = false;
+    }
+  };
+
+  /* O atraso inicial deixa o servidor terminar de subir e responder ao health check antes de
+   * gastar CPU com criptografia — num plano gratuito, o orquestrador está esperando resposta. */
+  const inicial = setTimeout(() => void executar('subida do processo'), atrasoInicialMs);
+  const periodico = setInterval(() => void executar('cronômetro'), intervaloHoras * 3600_000);
+  inicial.unref?.();
+  periodico.unref?.();
+
+  return () => {
+    clearTimeout(inicial);
+    clearInterval(periodico);
+  };
+}

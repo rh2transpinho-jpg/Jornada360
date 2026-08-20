@@ -11,6 +11,7 @@ import { criarApp } from './app.js';
 import { caminhoBanco, fecharBanco } from './db/index.js';
 import { carregarConfig, exigirConfigValida } from './config.js';
 import { agendarBackupAutomatico } from './lib/backup.js';
+import { agendarBackupExterno } from './lib/infraestrutura.js';
 import { log } from './lib/log.js';
 import { carregarCredenciais } from './lib/env.js';
 
@@ -39,6 +40,11 @@ const servidor = app.listen(config.porta, () => {
 
 const pararBackup = agendarBackupAutomatico(config);
 
+/* Backup externo criptografado no Backblaze. Disparado na subida do processo porque, num plano
+ * que hiberna, um cronometro de 12h dorme junto e nunca dispara. Se as variaveis do B2 nao
+ * estiverem configuradas, ele se declara desligado e nao faz nada. */
+const pararBackupExterno = agendarBackupExterno();
+
 /* Encerramento gracioso.
  *
  * Sem isto, `docker stop` ou `systemctl restart` matam o processo no meio de uma requisição: quem
@@ -61,6 +67,7 @@ function encerrar(sinal) {
   prazo.unref();
 
   pararBackup();
+  pararBackupExterno();
   servidor.close(() => {
     fecharBanco();
     log.info('encerrado com sucesso');
