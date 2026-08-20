@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   UploadCloud,
   Settings,
+  FileText,
 } from 'lucide-react';
 import { useHEEngineData } from '../../engine/useHEEngineData';
 import { useWorkspace } from '../../workspace/WorkspaceContext';
@@ -21,6 +22,9 @@ const NAV = [
   { to: '/', label: 'Dashboard Executivo', icon: LayoutDashboard, end: true },
   { to: '/ponto', label: 'Controle de Ponto', icon: Fingerprint },
   { to: '/he1', label: 'Horas Extras HE1', icon: Timer },
+  /* Duas telas, duas perguntas diferentes: HE1 responde "quanto cada um acumulou"; o Controle
+     responde "por que este colaborador teve hora extra neste dia". */
+  { to: '/horas-extras', label: 'Controle de HE', icon: FileText },
   { to: '/motor-he', label: 'Assistente HE Diário', icon: ClipboardCheck },
   { to: '/reincidencia', label: 'Ranking de Reincidência', icon: Repeat2 },
   { to: '/score', label: 'Score do Colaborador', icon: Award },

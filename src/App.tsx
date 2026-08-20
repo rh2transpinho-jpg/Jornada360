@@ -26,6 +26,7 @@ const Apresentacao = lazy(() => import('./pages/Apresentacao'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ControlePonto = lazy(() => import('./pages/ControlePonto'));
 const HorasExtras = lazy(() => import('./pages/HorasExtras'));
+const ControleHE = lazy(() => import('./pages/ControleHE'));
 const MotorHE = lazy(() => import('./pages/MotorHE'));
 const RankingReincidencia = lazy(() => import('./pages/RankingReincidencia'));
 const ScoreColaborador = lazy(() => import('./pages/ScoreColaborador'));
@@ -91,6 +92,7 @@ function RotasDaAplicacao() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/ponto" element={<ControlePonto />} />
           <Route path="/he1" element={<HorasExtras />} />
+          <Route path="/horas-extras" element={<ControleHE />} />
           <Route path="/motor-he" element={<MotorHE />} />
           <Route path="/reincidencia" element={<RankingReincidencia />} />
           <Route path="/score" element={<ScoreColaborador />} />

@@ -1,23 +1,26 @@
-/* Portão de entrada do Jornada360 — o que um visitante vê antes de existir qualquer empresa ativa.
+/* Entrada do Jornada360.
  *
- * Por que esta tela existe: antes, o sistema criava sozinho uma empresa chamada "Minha Empresa" e
- * já colocava o visitante dentro dela. Quem abrisse o produto entrava numa empresa que não criou,
- * com um nome que não é dele, sem saber se aquilo era demonstração ou produção. Aqui a escolha é
- * explícita e o visitante sempre sabe onde está entrando.
+ * O QUE MUDOU, E POR QUÊ: esta tela contava a história técnica do produto — programa piloto,
+ * onde os dados ficam, como funciona o isolamento entre empresas, link para o portfólio. Tudo
+ * verdadeiro, e tudo irrelevante para quem chega. Quem abre um sistema de jornada quer entrar
+ * nele; explicar arquitetura na porta faz o produto parecer um projeto.
  *
- * FASE 4: "Já tenho acesso" deixou de ser uma explicação e virou um login de verdade. O que NÃO
- * mudou é a honestidade da tela: a demonstração continua sendo local e sem conta, e quando o
- * servidor não responde a tela diz isso em vez de fingir que o login está indisponível "por
- * instabilidade". */
+ * Sobraram dois caminhos, que são os dois únicos que existem de verdade: entrar, ou olhar a
+ * demonstração. Cada informação removida daqui continua existindo onde tem função — o estado da
+ * demonstração aparece dentro dela, e a recusa de cadastro continua sendo do servidor, não desta
+ * tela.
+ *
+ * A ausência do servidor continua sendo dita. Não é texto técnico: é a diferença entre um botão
+ * que parece quebrado e um sistema que explica o que está acontecendo. */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, PlayCircle, LogIn, ArrowRight, ShieldCheck, ServerOff, PauseCircle } from 'lucide-react';
+import { ArrowRight, LogIn, PauseCircle, PlayCircle, ServerOff } from 'lucide-react';
 import { useSessao, ID_DEMO } from '../workspace/WorkspaceContext';
 import { useAuth } from '../auth/AuthContext';
 
 export default function BemVindo() {
   const { setWorkspaceAtivo, empresas } = useSessao();
-  const { estado, usuario, tenants, apiOnline, cadastroAberto, reconectar } = useAuth();
+  const { estado, usuario, apiOnline, reconectar } = useAuth();
   const navigate = useNavigate();
 
   const [verificandoConexao, setVerificandoConexao] = useState(false);
@@ -37,171 +40,101 @@ export default function BemVindo() {
   }
 
   return (
-    <div className="portao">
-      <div className="portao-conteudo">
-        <header className="portao-marca">
-          <div className="portao-logo">J</div>
+    <div className="entrada">
+      <div className="entrada__brilho" aria-hidden />
+
+      <main className="entrada__conteudo">
+        <header className="entrada__marca">
+          <div className="entrada__logo" aria-hidden>J</div>
           <div>
-            <h1 className="portao-nome">JORNADA360</h1>
-            <p className="portao-sub">Central Inteligente de Gestão e Auditoria de Jornada</p>
+            <h1 className="entrada__nome">JORNADA360</h1>
+            <p className="entrada__assinatura">Gestão e auditoria de jornada</p>
           </div>
         </header>
 
-        <p className="portao-pitch">Transforme dados de jornada em decisões.</p>
-
         {estado === 'verificando' ? (
-          <div className="portao-opcoes"><div className="estado-async">Verificando sua sessão…</div></div>
+          <div className="entrada__carregando" role="status">Abrindo…</div>
         ) : autenticado ? (
-          /* ---------------------------------------------- já entrou: escolher empresa */
           <>
-            <div className="portao-saudacao">
-              Olá, <b>{usuario?.nome}</b>. {empresasReais.length === 1
-                ? 'Sua empresa está pronta.'
-                : `Você tem acesso a ${empresasReais.length} empresas.`}
-            </div>
+            <p className="entrada__saudacao">
+              Olá, <b>{usuario?.nome}</b>.
+            </p>
 
-            <div className="portao-opcoes">
+            <nav className="entrada__caminhos">
               {empresasReais.map((e) => {
-                /* Uma empresa suspensa continua na lista, marcada — some da lista pareceria defeito
-                 * do sistema, e a pessoa perderia a informação de que os dados dela existem. */
+                /* Uma empresa suspensa continua na lista, marcada. Fazê-la sumir seria lido como
+                 * "meus dados foram apagados" — e não foram. */
                 const suspensa = e.status === 'suspensa';
                 return (
                   <button
                     key={e.id}
-                    className={`portao-opcao ${suspensa ? 'portao-opcao--suspensa' : 'portao-opcao-principal'}`}
+                    className={`caminho ${suspensa ? 'caminho--pausado' : 'caminho--principal'}`}
                     onClick={() => abrir(e.id)}
                   >
-                    {suspensa ? <PauseCircle size={20} /> : <Building2 size={20} />}
-                    <div>
-                      <div className="portao-opcao-titulo">{e.nome}</div>
-                      <div className="portao-opcao-desc">
-                        {suspensa
-                          ? 'Acesso suspenso — seus dados estão preservados. Fale conosco para reativar.'
-                          : `Seu papel nesta empresa: ${e.papel}`}
-                      </div>
-                    </div>
-                    <ArrowRight size={16} className="portao-seta" />
+                    <span className="caminho__icone" aria-hidden>
+                      {suspensa ? <PauseCircle size={22} /> : <LogIn size={22} />}
+                    </span>
+                    <span className="caminho__texto">
+                      <span className="caminho__titulo">{e.nome}</span>
+                      <span className="caminho__desc">
+                        {suspensa ? 'Acesso pausado — seus dados estão preservados' : 'Entrar'}
+                      </span>
+                    </span>
+                    <ArrowRight size={18} className="caminho__seta" aria-hidden />
                   </button>
                 );
               })}
 
-              {cadastroAberto && (
-                <button className="portao-opcao" onClick={() => navigate('/nova-empresa')}>
-                  <Building2 size={20} />
-                  <div>
-                    <div className="portao-opcao-titulo">Criar outra empresa</div>
-                    <div className="portao-opcao-desc">Ambiente novo e vazio. Nada é copiado da empresa atual.</div>
-                  </div>
-                  <ArrowRight size={16} className="portao-seta" />
-                </button>
-              )}
-
-              <button className="portao-opcao" onClick={() => abrir(ID_DEMO)}>
-                <PlayCircle size={20} />
-                <div>
-                  <div className="portao-opcao-titulo">Ver demonstração</div>
-                  <div className="portao-opcao-desc">Ambiente fictício, separado da sua empresa.</div>
-                </div>
-                <ArrowRight size={16} className="portao-seta" />
+              <button className="caminho" onClick={() => abrir(ID_DEMO)}>
+                <span className="caminho__icone" aria-hidden><PlayCircle size={22} /></span>
+                <span className="caminho__texto">
+                  <span className="caminho__titulo">Ver demonstração</span>
+                  <span className="caminho__desc">Ambiente de apresentação, separado da sua empresa</span>
+                </span>
+                <ArrowRight size={18} className="caminho__seta" aria-hidden />
               </button>
-            </div>
+            </nav>
           </>
         ) : (
-          /* ---------------------------------------------- visitante */
-          <div className="portao-opcoes">
-            {/* Com o cadastro fechado (programa piloto), o botão de criar empresa não aparece.
-                Mostrá-lo desabilitado, ou pior, levar ao formulário para recusar no fim, faria a
-                pessoa preencher tudo para descobrir que nunca houve essa porta. Quem entra é
-                quem já foi liberado — e é esse o caminho que fica em destaque. */}
-            {cadastroAberto && (
-              <button
-                className="portao-opcao portao-opcao-principal"
-                onClick={() => navigate('/criar-conta')}
-                disabled={!apiOnline}
-              >
-                <Building2 size={20} />
-                <div>
-                  <div className="portao-opcao-titulo">Criar minha empresa</div>
-                  <div className="portao-opcao-desc">
-                    Conta e ambiente novos, guardados no servidor. Nenhum dado de exemplo é copiado.
-                  </div>
-                </div>
-                <ArrowRight size={16} className="portao-seta" />
-              </button>
-            )}
-
-            <button className="portao-opcao" onClick={() => abrir(ID_DEMO)}>
-              <PlayCircle size={20} />
-              <div>
-                <div className="portao-opcao-titulo">Ver demonstração</div>
-                <div className="portao-opcao-desc">
-                  Ambiente de apresentação com dados fictícios. Funciona sem conta e sem servidor.
-                </div>
-              </div>
-              <ArrowRight size={16} className="portao-seta" />
-            </button>
-
+          <nav className="entrada__caminhos">
             <button
-              className={`portao-opcao ${cadastroAberto ? '' : 'portao-opcao-principal'}`}
+              className="caminho caminho--principal"
               onClick={() => navigate('/entrar')}
               disabled={!apiOnline}
             >
-              <LogIn size={20} />
-              <div>
-                <div className="portao-opcao-titulo">Já tenho acesso</div>
-                <div className="portao-opcao-desc">Entrar na empresa da qual já faço parte.</div>
-              </div>
-              <ArrowRight size={16} className="portao-seta" />
+              <span className="caminho__icone" aria-hidden><LogIn size={22} /></span>
+              <span className="caminho__texto">
+                <span className="caminho__titulo">Entrar no Jornada360</span>
+                <span className="caminho__desc">Acessar a sua empresa</span>
+              </span>
+              <ArrowRight size={18} className="caminho__seta" aria-hidden />
             </button>
-          </div>
+
+            <button className="caminho" onClick={() => abrir(ID_DEMO)}>
+              <span className="caminho__icone" aria-hidden><PlayCircle size={22} /></span>
+              <span className="caminho__texto">
+                <span className="caminho__titulo">Ver demonstração</span>
+                <span className="caminho__desc">Conhecer o sistema com dados de exemplo</span>
+              </span>
+              <ArrowRight size={18} className="caminho__seta" aria-hidden />
+            </button>
+          </nav>
         )}
 
-        {/* A ausência do servidor é dita, não escondida. Sem isso, os dois botões desabilitados
-            pareceriam um defeito da aplicação. */}
+        {/* Servidor fora do ar é dito, não escondido: sem isto, o botão desabilitado pareceria
+            defeito do sistema. A demonstração é local e continua disponível. */}
         {!apiOnline && estado !== 'verificando' && (
-          <div className="portao-aviso">
-            <ServerOff size={15} />
-            <div>
-              <b>Servidor não encontrado.</b> Criar conta e entrar dependem dele — os dados de uma empresa real ficam no
-              servidor, não neste navegador. A demonstração continua disponível.
+          <div className="entrada__aviso" role="status">
+            <ServerOff size={15} aria-hidden />
+            <span>
+              Servidor indisponível no momento. A demonstração continua funcionando.
               <button className="btn-link" onClick={tentarConectar} disabled={verificandoConexao}>
                 {verificandoConexao ? 'Verificando…' : 'Tentar novamente'}
               </button>
-            </div>
+            </span>
           </div>
         )}
-
-        {/* Programa piloto dito na cara, para o visitante e para o cliente. Sem isto, a ausência
-            do botão de criar empresa pareceria funcionalidade faltando em vez de decisão. */}
-        {apiOnline && !cadastroAberto && estado !== 'verificando' && (
-          <div className="portao-aviso">
-            <ShieldCheck size={15} />
-            <div>
-              <b>Programa piloto.</b> O Jornada360 está em uso por um número limitado de empresas, com acesso liberado
-              pela nossa equipe. Se você quer participar, fale conosco — a demonstração continua aberta a qualquer um.
-            </div>
-          </div>
-        )}
-
-        <footer className="portao-rodape">
-          <ShieldCheck size={13} />
-          <span>
-            Empresas reais ficam no servidor, isoladas por conta: ninguém enxerga a empresa de outro. A demonstração usa
-            dados fictícios e vive apenas neste navegador.
-          </span>
-        </footer>
-
-        <button className="portao-link-portfolio" onClick={() => navigate('/portfolio')}>
-          Conhecer o projeto e o portfólio
-        </button>
-
-        {autenticado && tenants.length === 0 && (
-          <div className="portao-nota">
-            Sua conta ainda não está vinculada a nenhuma empresa. Crie uma, ou peça a um administrador que gere um convite
-            para você.
-          </div>
-        )}
-      </div>
+      </main>
     </div>
   );
 }

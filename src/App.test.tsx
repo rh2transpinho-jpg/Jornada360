@@ -55,16 +55,19 @@ afterEach(() => {
 /* ---------------------------------------------------------------- visitante */
 
 describe('portão de entrada', () => {
-  it('mostra os três caminhos e NÃO coloca ninguém dentro de uma empresa', async () => {
+  it('mostra os dois caminhos e NÃO coloca ninguém dentro de uma empresa', async () => {
     instalarServidorFalso();
     responder((url) => (url.includes('/api/saude') ? { status: 200, corpo: { ok: true } } : undefined));
     responder((url) => (url.includes('/api/auth/eu') ? { status: 401, corpo: { mensagem: 'Sessão inválida.' } } : undefined));
 
     render(<App />);
 
-    expect(await screen.findByText('Criar minha empresa')).toBeDefined();
+    /* A entrada foi reduzida a dois caminhos de propósito: entrar, ou olhar a demonstração.
+     * Criar empresa saiu da tela porque o servidor recusa em produção — oferecer um caminho que
+     * termina em recusa é pior do que não oferecer. */
+    expect(await screen.findByText('Entrar no Jornada360')).toBeDefined();
     expect(screen.getByText('Ver demonstração')).toBeDefined();
-    expect(screen.getByText('Já tenho acesso')).toBeDefined();
+    expect(screen.queryByText('Criar minha empresa')).toBeNull();
     /* A barra lateral só existe dentro do sistema. Vê-la aqui significaria ter entrado sem escolher. */
     expect(screen.queryByRole('heading', { name: 'Dashboard Executivo', level: 1 })).toBeNull();
   });
@@ -73,7 +76,7 @@ describe('portão de entrada', () => {
     servidorForaDoAr();
     render(<App />);
 
-    expect(await screen.findByText(/Servidor não encontrado/i)).toBeDefined();
+    expect(await screen.findByText(/Servidor indisponível/i)).toBeDefined();
     /* A demonstração é local: ela continua disponível justamente quando o servidor não está. */
     expect(screen.getByText('Ver demonstração')).toBeDefined();
   });
@@ -93,7 +96,7 @@ describe('login', () => {
     );
 
     render(<App />);
-    await userEvent.click(await screen.findByText('Já tenho acesso'));
+    await userEvent.click(await screen.findByText('Entrar no Jornada360'));
 
     await userEvent.type(await screen.findByLabelText('E-mail'), 'ana@empresa.test');
     await userEvent.type(screen.getByLabelText('Senha'), 'senha-forte-123');
@@ -114,7 +117,7 @@ describe('login', () => {
     );
 
     render(<App />);
-    await userEvent.click(await screen.findByText('Já tenho acesso'));
+    await userEvent.click(await screen.findByText('Entrar no Jornada360'));
     await userEvent.type(await screen.findByLabelText('E-mail'), 'ana@empresa.test');
     await userEvent.type(screen.getByLabelText('Senha'), 'errada12345');
     await userEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -136,7 +139,7 @@ describe('login', () => {
     );
 
     render(<App />);
-    await userEvent.click(await screen.findByText('Já tenho acesso'));
+    await userEvent.click(await screen.findByText('Entrar no Jornada360'));
     await userEvent.type(await screen.findByLabelText('E-mail'), 'ana@empresa.test');
     await userEvent.type(screen.getByLabelText('Senha'), 'senha-forte-123');
     await userEvent.click(screen.getByRole('button', { name: /Entrar/i }));
@@ -159,7 +162,7 @@ describe('guarda de rota', () => {
     window.history.pushState({}, '', '/configuracoes');
     render(<App />);
 
-    expect(await screen.findByText('Criar minha empresa')).toBeDefined();
+    expect(await screen.findByText('Entrar no Jornada360')).toBeDefined();
     expect(screen.queryByText('Configurações')).toBeNull();
   });
 
@@ -296,7 +299,7 @@ describe('estados de carregamento e falha', () => {
       () => expect(screen.queryByRole('heading', { name: 'Dashboard Executivo', level: 1 })).toBeNull(),
       { timeout: 3000 },
     );
-    expect(await screen.findByText('Criar minha empresa')).toBeDefined();
+    expect(await screen.findByText('Entrar no Jornada360')).toBeDefined();
   });
 });
 
@@ -372,10 +375,13 @@ describe('programa piloto na interface', () => {
 
     /* A demonstração e a entrada continuam abertas: fechar o cadastro fecha a porta de quem chega
      * sozinho, não a de quem já foi convidado nem a de quem só quer conhecer. */
+    /* A entrada não fala mais de programa piloto: virou tela de produto, não de projeto.
+     * A garantia real nunca esteve aqui — está no servidor, que recusa o cadastro com 403
+     * (ver server/piloto.test.js). Esta tela só não oferece o caminho. */
     expect(await screen.findByText('Ver demonstração')).toBeDefined();
-    expect(screen.getByText('Já tenho acesso')).toBeDefined();
+    expect(screen.getByText('Entrar no Jornada360')).toBeDefined();
     expect(screen.queryByText('Criar minha empresa')).toBeNull();
-    expect(screen.getByText(/Programa piloto/i)).toBeDefined();
+    expect(screen.queryByText(/Programa piloto/i)).toBeNull();
   });
 
   it('mostra a empresa suspensa na lista, marcada, em vez de fazê-la sumir', async () => {

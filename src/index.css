@@ -1375,3 +1375,303 @@ table.data-table {
   color: var(--text-muted);
   line-height: 1.45;
 }
+
+/* ================================================================ Controle de Horas Extras
+ *
+ * Segue o mesmo vocabulário visual do resto do produto (kpi-card, data-table, badge) — quem vem
+ * do Dashboard ou das Pendências reconhece a tela. O que é próprio daqui existe para uma coisa
+ * só: fazer o que precisa de ação saltar antes do que já foi resolvido. */
+
+/* Um KPI que exige ação não pode parecer igual a um informativo. */
+.kpi-card--alerta { border-color: var(--orange); }
+.kpi-card--alerta .kpi-value { color: var(--orange); }
+.kpi-card--atencao { border-color: var(--yellow); }
+
+.he-toolbar { flex-wrap: wrap; gap: 8px; }
+.he-toolbar .input[type="date"] { width: 150px; }
+
+.he-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0 14px;
+}
+
+.he-chip {
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.he-chip:hover { border-color: var(--brand-500); color: var(--text); }
+.he-chip--ativo {
+  border-color: var(--brand-500);
+  background: var(--brand-100);
+  color: var(--brand-400);
+}
+
+/* Uma faixa verde discreta na borda: a linha pendente se distingue sem virar um alarme
+   vermelho piscando em cima de trabalho normal. */
+.he-linha--pendente > td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
+
+.he-antes {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--yellow);
+}
+
+.he-parado {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- painel de detalhe */
+
+.he-painel-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Painel lateral, e não modal centralizado: a lista continua visível atrás, e quem trata várias
+   ocorrências seguidas não perde o contexto a cada abertura. */
+.he-painel {
+  width: min(560px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -18px 0 46px rgba(0, 0, 0, 0.42);
+}
+
+.he-painel__topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.he-painel__corpo {
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.he-painel__cabecalho {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 18px;
+}
+
+.avatar-lg {
+  width: 44px;
+  height: 44px;
+  font-size: 15px;
+}
+
+.he-painel__nome {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.he-painel__data {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* O recálculo depois da análise é a informação mais fácil de passar despercebida e a mais cara
+   de descobrir tarde: alguém decidiu com base num número que mudou. */
+.he-aviso-recalculo {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 15px;
+  margin-bottom: 18px;
+  border: 1px solid var(--yellow);
+  border-radius: 11px;
+  background: var(--yellow-bg);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.he-aviso-recalculo svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--yellow);
+}
+
+.he-secao { margin-bottom: 22px; }
+
+.he-secao__titulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.he-campos {
+  margin: 0;
+  display: grid;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.he-campos > div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  padding: 9px 13px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.he-campos dt { color: var(--text-muted); }
+.he-campos dd { margin: 0; }
+
+.he-justificativa-atual {
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin-bottom: 14px;
+}
+.he-justificativa-atual__motivo {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand-400);
+  margin-bottom: 5px;
+}
+.he-justificativa-atual p {
+  margin: 0 0 9px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+/* A observação é um complemento da justificativa, não uma segunda justificativa: entra recuada e
+   mais discreta para que a leitura continue começando pelo motivo. */
+.he-justificativa-atual__obs {
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12.5px !important;
+}
+.he-justificativa-atual__rodape {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.he-justificativa-atual__rodape span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.he-form { display: flex; flex-direction: column; gap: 4px; }
+.he-form .input { width: 100%; margin-bottom: 10px; }
+.he-form .field-label { margin-top: 2px; }
+
+.he-form__linha {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.he-form__acoes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.he-nota {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- linha do tempo */
+
+.he-linha-tempo {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 4px;
+}
+.he-linha-tempo li {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 0 0 16px 0;
+}
+/* O fio que liga os eventos. Some no último para a linha não continuar no vazio. */
+.he-linha-tempo li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 14px;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.he-linha-tempo__marca {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--brand-500);
+}
+.he-linha-tempo__evento { font-size: 13px; font-weight: 600; }
+.he-linha-tempo__autor { color: var(--text-muted); font-weight: 400; }
+.he-linha-tempo__mudanca {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+.he-linha-tempo__mudanca s { color: var(--text-faint); }
+.he-linha-tempo__obs {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+.he-linha-tempo__quando {
+  display: block;
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 3px;
+}
+
+@media (max-width: 700px) {
+  .he-painel { width: 100%; }
+  .he-campos > div { grid-template-columns: 1fr; gap: 2px; }
+  .he-form__linha { grid-template-columns: 1fr; }
+  .he-toolbar .input { width: 100% !important; }
+}
