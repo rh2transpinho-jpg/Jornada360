@@ -4,10 +4,11 @@
  * Nenhum número é calculado aqui: o mesmo dado que aparece no Dashboard e nas telas operacionais
  * é o que sai no CSV. */
 import { Link } from 'react-router-dom';
+import { PainelGerencial } from '../components/relatorios/PainelGerencial';
 import { useMemo, useState } from 'react';
 import { RefreshCw, Download, FileText, Repeat2 } from 'lucide-react';
 import { useHEEngineData } from '../engine/useHEEngineData';
-import { useWorkspace } from '../workspace/WorkspaceContext';
+import { useSessao, useWorkspace } from '../workspace/WorkspaceContext';
 import { useAppState } from '../state/AppState';
 import { cicloKeyFor, cicloLabel, mesLabel, minToStrSigned } from '../engine/heEngineCore';
 import {
@@ -39,6 +40,7 @@ const TIPO_REGISTRO: Record<TipoRelatorio, 'diario' | 'horas_extras' | 'divergen
 export default function Relatorios() {
   const { dias, refresh } = useHEEngineData();
   const { workspace, workspaceIdAtivo, pendencias, repositorios } = useWorkspace();
+  const { modo } = useSessao();
   const { auditLog, registrarAuditoria, usuarioAtual } = useAppState();
 
   const [agrupamento, setAgrupamento] = useState<Agrupamento>('mes');
@@ -283,6 +285,12 @@ export default function Relatorios() {
           </div>
         </>
       )}
+
+      {/* O resumo do período e a leitura gerencial ficam AQUI, e não numa tela própria: quem abre
+          Relatórios já veio perguntar "como foi o período". Uma tela separada para a mesma
+          pergunta dividiria a resposta em dois lugares. Só aparece no modo remoto — os números
+          vêm da análise do servidor. */}
+      {modo === 'remoto' && workspaceIdAtivo && <PainelGerencial tenantId={workspaceIdAtivo} />}
     </>
   );
 }
