@@ -106,13 +106,22 @@ export async function emTransacao(fn) {
 
 /* ---------------------------------------------------------------- migrations */
 
-const MIGRACOES = [
+/* A LISTA ÚNICA DE MIGRATIONS.
+ *
+ * Exportada porque a restauração de backup também precisa montar o schema, e ela precisa montar
+ * EXATAMENTE este. Já existiu aqui uma segunda cópia desta lista, escrita à mão dentro da rotina
+ * de restauração: acrescentar uma migration passou a quebrar o restore em silêncio — o backup
+ * subia normalmente e só falhava na hora de recuperar, que é a única hora em que isso importa.
+ * Uma lista só, um lugar só. */
+export const MIGRACOES = [
   { versao: 1, arquivo: 'schema.sql' },
   { versao: 2, arquivo: '002_fase4.sql' },
   { versao: 3, arquivo: '003_fase5.sql' },
   { versao: 4, arquivo: '004_piloto.sql' },
   { versao: 5, arquivo: '005_horas_extras.sql' },
   { versao: 6, arquivo: '006_infraestrutura.sql' },
+  { versao: 7, arquivo: '007_escalas_padroes.sql' },
+  { versao: 8, arquivo: '008_analise_automatica.sql' },
 ];
 
 /* Executa o schema. É idempotente (todo CREATE usa IF NOT EXISTS) e registra a versão aplicada,

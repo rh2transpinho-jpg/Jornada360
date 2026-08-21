@@ -47,6 +47,9 @@ export function chaveColaborador(nome) {
     .replace(/\s+/g, ' ');
 }
 
+/* As colunas `referencia_*` dizem contra QUAL horário esta HE foi calculada — escala do dia ou
+ * horário padrão vigente. São lado CALCULADO: escritas por `services/processamento.js`, nunca por
+ * quem justifica. Existem para que ninguém precise adivinhar de onde o número saiu. */
 const CAMPOS = `id, colaborador_chave AS colaboradorChave, colaborador_nome AS colaborador,
   colaborador_id AS colaboradorId, data, he_min AS heMin, excedente_min AS excedenteMin,
   padrao_min AS padraoMin, escala_prevista AS escalaPrevista, jornada_realizada AS jornadaRealizada,
@@ -55,7 +58,9 @@ const CAMPOS = `id, colaborador_chave AS colaboradorChave, colaborador_nome AS c
   anexo_nome AS anexoNome, anexo_url AS anexoUrl, justificada_em AS justificadaEm,
   responsavel_id AS responsavelId, responsavel_nome AS responsavel,
   criada_em AS criadaEm, atualizada_em AS atualizadaEm,
-  recalculada_em AS recalculadaEm, he_min_anterior AS heMinAnterior`;
+  recalculada_em AS recalculadaEm, he_min_anterior AS heMinAnterior,
+  referencia_tipo AS referenciaTipo, referencia_id AS referenciaId,
+  referencia_horarios AS referenciaHorarios, referencia_extra_min AS referenciaExtraMin`;
 
 /* ---------------------------------------------------------------- sincronização com o motor */
 

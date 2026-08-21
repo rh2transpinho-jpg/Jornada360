@@ -4,7 +4,7 @@
  * função daqui é chamada no caminho de uma requisição de usuário, e nenhuma falha daqui derruba
  * o sistema. Quando o Backblaze cai, o Jornada360 continua inteiro: o que acontece é um evento
  * `falha` registrado e um alerta na Minha Fila. */
-import { consultar, consultarUm, executar } from '../db/index.js';
+import { consultar, consultarUm, executar, MIGRACOES } from '../db/index.js';
 import { novoId } from './seguranca.js';
 import { log } from './log.js';
 import * as b2 from './backupExterno.js';
@@ -23,7 +23,14 @@ import * as b2 from './backupExterno.js';
 export const TABELAS = [
   'users', 'tenants', 'memberships', 'companies', 'units', 'departments', 'schedules',
   'employees', 'workspace_rules', 'integration_configs', 'time_records',
+  /* Ordem = dependência. `escala_importacoes` antes de `escalas_dia` porque a escala aponta para
+     a importação que a trouxe; foi exatamente esse tipo de inversão que fez uma restauração falhar
+     com FOREIGN KEY e revelou que o backup vinha perdendo dado. */
+  'horarios_padrao', 'horarios_padrao_historico',
+  'escala_importacoes', 'escalas_dia', 'escalas_historico',
   'he_ocorrencias', 'he_historico',
+  /* Antes de `pendings`, que referencia a análise. */
+  'jornada_analises',
   'pendings',
   'audit_log', 'invites', 'sessions', 'password_resets', 'feedback',
 ];
@@ -211,9 +218,11 @@ export async function testarRestauracaoExterna(arquivo, cfg = b2.configuracaoB2(
       const { dirname } = await import('node:path');
       const raizDb = join(dirname(fileURLToPath(import.meta.url)), '..', 'db');
 
-      /* O schema vem das migrations, exatamente como no destino real. */
-      for (const m of ['schema.sql', '002_fase4.sql', '003_fase5.sql', '004_piloto.sql', '005_horas_extras.sql', '006_infraestrutura.sql']) {
-        db.exec(readFileSync(join(raizDb, m), 'utf8').replace(/^\s*PRAGMA[^;]*;/gim, ''));
+      /* O schema vem das migrations, exatamente como no destino real — e a LISTA vem de
+       * `db/index.js`, não de uma cópia escrita aqui. Uma cópia local já existiu e transformou
+       * "adicionar uma migration" em "quebrar a restauração sem ninguém perceber". */
+      for (const m of MIGRACOES) {
+        db.exec(readFileSync(join(raizDb, m.arquivo), 'utf8').replace(/^\s*PRAGMA[^;]*;/gim, ''));
       }
       for (const instrucao of sql.split('\n').filter((l) => l.trim().startsWith('INSERT INTO '))) {
         db.exec(instrucao);

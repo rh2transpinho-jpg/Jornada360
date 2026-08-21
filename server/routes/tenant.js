@@ -20,6 +20,14 @@ import { enviarEmail, mensagemConvite } from '../lib/email.js';
 import { carregarConfig } from '../config.js';
 import * as piloto from '../repositories/pilotoRepository.js';
 import * as he from '../repositories/heRepository.js';
+import * as escalas from '../repositories/escalaRepository.js';
+import * as padroes from '../repositories/padraoRepository.js';
+import * as analises from '../repositories/analiseRepository.js';
+import * as processamento from '../services/processamento.js';
+import * as resumos from '../services/resumos.js';
+import * as mensagens from '../services/mensagemColaborador.js';
+import * as ia from '../services/ia.js';
+import { resolverReferencia } from '../services/referenciaJornada.js';
 
 export const tenantRouter = Router({ mergeParams: true });
 
@@ -276,15 +284,23 @@ tenantRouter.put('/dias/:dateKey', exigirPermissao(P.DADOS_ESCREVER), rota(async
   if (!snapshot || !Array.isArray(snapshot.items)) {
     return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Snapshot do dia inválido.' });
   }
-  const dia = await operacao.salvarDia(req.tenantId, req.params.dateKey, snapshot, caseState);
-
-  /* As ocorrências de HE do dia são materializadas AQUI, junto com a gravação — não numa rotina
-   * separada que alguém pode esquecer de chamar. `sincronizarDia` só atualiza os números; a
-   * justificativa já registrada continua onde está (ver heRepository). */
-  const sincronia = await he.sincronizarDia(req.tenantId, req.params.dateKey, snapshot);
-  await he.gerarPendencias(req.tenantId);
+  /* Gravar e ANALISAR são a mesma operação (ver services/processamento.js): as ocorrências de HE
+   * são materializadas, cada jornada é comparada com a referência certa do dia (escala > padrão),
+   * e a fila recebe só o que precisa de gente — perdendo o que deixou de ser problema. Uma rotina
+   * separada que alguém dispara depois já produziu, na fase anterior, fila fora de sincronia. */
+  const { dia, he: sincronia, resumo, fila } = await processamento.salvarEProcessar(
+    req.tenantId, req.params.dateKey, snapshot, caseState,
+  );
 
   auditar(req, { entidade: `Dia ${req.params.dateKey}`, acao: 'Dia processado gravado', valorNovo: `${snapshot.items.length} registro(s)` });
+  if (fila.resolvidas > 0) {
+    auditar(req, {
+      entidade: `Dia ${req.params.dateKey}`,
+      acao: 'Pendências resolvidas automaticamente',
+      valorNovo: `${fila.resolvidas} pendência(s)`,
+      motivo: 'A causa deixou de existir após o reprocessamento.',
+    });
+  }
   if (sincronia.recalculadas > 0) {
     auditar(req, {
       entidade: `Dia ${req.params.dateKey}`,
@@ -293,7 +309,7 @@ tenantRouter.put('/dias/:dateKey', exigirPermissao(P.DADOS_ESCREVER), rota(async
       motivo: 'A justificativa foi preservada.',
     });
   }
-  res.json({ ...dia, he: sincronia });
+  res.json({ ...dia, he: sincronia, analise: resumo, fila });
 }));
 
 tenantRouter.patch('/dias/:dateKey/casos/:chave', exigirPermissao(P.PENDENCIA_TRATAR), rota(async (req, res) => {
@@ -484,6 +500,311 @@ tenantRouter.get('/he/relatorio/csv', exigirPermissao(P.RELATORIO_EXPORTAR), rot
   auditar(req, { entidade: 'Relatório de horas extras', acao: 'Relatório exportado', valorNovo: `${linhas.length} linha(s)` });
   res.set('content-type', 'text/csv; charset=utf-8');
   res.send('\uFEFF' + csv);
+}));
+
+/* ---------------------------------------------------------------- horários padrão */
+
+/* Cadastro é CONFIG (a mesma permissão de unidades, setores e escalas-modelo). Não foi criada
+ * permissão nova: a matriz de RBAC já tratava escala como cadastro da empresa, e inventar um
+ * nome novo por rota é exatamente o que o arquivo de permissões diz para não fazer. */
+
+tenantRouter.get('/padroes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await padroes.listar(req.tenantId, req.query));
+}));
+
+tenantRouter.get('/padroes/alertas', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await padroes.alertasDeQualidade(req.tenantId));
+}));
+
+/* A linha do tempo do horário de uma pessoa — a resposta a "qual horário valia em julho?". */
+tenantRouter.get('/padroes/colaborador/:nome', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await padroes.historicoDoColaborador(req.tenantId, req.params.nome));
+}));
+
+tenantRouter.get('/padroes/:id', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  const p = await padroes.obter(req.tenantId, req.params.id);
+  if (!p) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Horário padrão não encontrado.' });
+  res.json({ ...p, historico: await padroes.historico(req.tenantId, req.params.id) });
+}));
+
+tenantRouter.post('/padroes', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  try {
+    const salvo = await padroes.criar(req.tenantId, req.body ?? {}, req.usuario);
+    auditar(req, {
+      entidade: `Horário padrão — ${salvo.colaborador}`,
+      acao: 'Horário padrão incluído',
+      valorNovo: `${salvo.faixa} a partir de ${salvo.vigenciaInicio}`,
+    });
+    res.status(201).json(salvo);
+  } catch (e) {
+    if (e.codigo !== 'dados_invalidos') throw e;
+    res.status(400).json({ erro: e.codigo, mensagem: e.message, problemas: e.problemas });
+  }
+}));
+
+tenantRouter.put('/padroes/:id', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const antes = await padroes.obter(req.tenantId, req.params.id);
+  if (!antes) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Horário padrão não encontrado.' });
+  try {
+    const salvo = await padroes.atualizar(req.tenantId, req.params.id, req.body ?? {}, req.usuario);
+    auditar(req, {
+      entidade: `Horário padrão — ${salvo.colaborador}`,
+      acao: 'Horário padrão alterado',
+      valorAnterior: `${antes.faixa} (${antes.vigenciaInicio} → ${antes.vigenciaFim ?? 'sem fim'})`,
+      valorNovo: `${salvo.faixa} (${salvo.vigenciaInicio} → ${salvo.vigenciaFim ?? 'sem fim'})`,
+      motivo: req.body?.motivo ?? '',
+    });
+    res.json(salvo);
+  } catch (e) {
+    if (e.codigo !== 'dados_invalidos') throw e;
+    res.status(400).json({ erro: e.codigo, mensagem: e.message, problemas: e.problemas });
+  }
+}));
+
+tenantRouter.post('/padroes/:id/inativar', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const salvo = await padroes.inativar(req.tenantId, req.params.id, req.usuario, req.body?.motivo ?? '');
+  if (!salvo) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Horário padrão não encontrado.' });
+  auditar(req, {
+    entidade: `Horário padrão — ${salvo.colaborador}`,
+    acao: 'Horário padrão inativado',
+    valorAnterior: 'ativo', valorNovo: 'inativo', motivo: req.body?.motivo ?? '',
+  });
+  res.json(salvo);
+}));
+
+tenantRouter.post('/padroes/:id/reativar', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const salvo = await padroes.reativar(req.tenantId, req.params.id, req.usuario);
+  if (!salvo) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Horário padrão não encontrado.' });
+  auditar(req, { entidade: `Horário padrão — ${salvo.colaborador}`, acao: 'Horário padrão reativado', valorAnterior: 'inativo', valorNovo: 'ativo' });
+  res.json(salvo);
+}));
+
+tenantRouter.post('/padroes/importacao/previa', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  res.json(await padroes.preverImportacao(req.tenantId, req.body?.linhas ?? []));
+}));
+
+tenantRouter.post('/padroes/importacao', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const r = await padroes.importar(req.tenantId, req.body?.linhas ?? [], req.usuario);
+  auditar(req, {
+    entidade: 'Horários padrão',
+    acao: 'Importação de horários padrão',
+    valorNovo: `${r.aplicadas.length} aplicada(s), ${r.recusadas.length} recusada(s)`,
+    motivo: req.body?.arquivo ?? '',
+  });
+  res.json(r);
+}));
+
+/* ---------------------------------------------------------------- escalas */
+
+tenantRouter.get('/escalas', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await escalas.listar(req.tenantId, req.query));
+}));
+
+tenantRouter.get('/escalas/opcoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await escalas.opcoesDeFiltro(req.tenantId));
+}));
+
+/* Cobertura do dia: quem não tem escala, escala sem ponto e ponto sem escala — as três da mesma
+ * comparação, para que não possam discordar entre si. */
+tenantRouter.get('/escalas/cobertura/:data', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await escalas.cobertura(req.tenantId, req.params.data));
+}));
+
+tenantRouter.get('/escalas/importacoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await escalas.listarImportacoes(req.tenantId));
+}));
+
+tenantRouter.get('/escalas/:id', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  const e = await escalas.obter(req.tenantId, req.params.id);
+  if (!e) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Escala não encontrada.' });
+  res.json({ ...e, historico: await escalas.historico(req.tenantId, req.params.id) });
+}));
+
+tenantRouter.put('/escalas', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const antes = req.body?.colaborador && req.body?.data
+    ? await escalas.obterDoDia(req.tenantId, req.body.colaborador, req.body.data)
+    : null;
+  try {
+    const salvo = await escalas.salvar(req.tenantId, req.body ?? {}, req.usuario);
+    auditar(req, {
+      entidade: `Escala ${salvo.colaborador} — ${salvo.data}`,
+      acao: antes ? 'Escala alterada' : 'Escala incluída',
+      valorAnterior: antes ? `${antes.rotuloSituacao} ${antes.faixa}`.trim() : '',
+      valorNovo: `${salvo.rotuloSituacao} ${salvo.faixa}`.trim(),
+      motivo: req.body?.motivo ?? '',
+    });
+    res.json(salvo);
+  } catch (e) {
+    if (e.codigo !== 'dados_invalidos') throw e;
+    res.status(400).json({ erro: e.codigo, mensagem: e.message, problemas: e.problemas });
+  }
+}));
+
+/* Passo 1 da importação: mostra o que MUDARIA, sem gravar. É o requisito de nunca sobrescrever
+ * escala existente em silêncio. */
+tenantRouter.post('/escalas/importacao/previa', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  res.json(await escalas.preverImportacao(req.tenantId, req.body?.linhas ?? []));
+}));
+
+/* Passo 2: grava e REPROCESSA os dias afetados.
+ *
+ * O reprocessamento é o que faz a resolução automática acontecer: um dia que estava marcado como
+ * "ponto sem escala" passa a ter referência, a análise muda e a pendência antiga se encerra
+ * sozinha. Sem isso, importar a escala corrigiria o cadastro e deixaria a fila mentindo. */
+tenantRouter.post('/escalas/importacao', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const linhas = req.body?.linhas ?? [];
+  const r = await escalas.confirmarImportacao(req.tenantId, linhas, req.usuario, {
+    arquivo: req.body?.arquivo ?? '', formato: req.body?.formato ?? '',
+  });
+
+  auditar(req, {
+    entidade: 'Escalas',
+    acao: 'Importação de escala',
+    valorNovo: `${r.criadas} criada(s), ${r.atualizadas} atualizada(s), ${r.ignoradas} ignorada(s)`,
+    motivo: req.body?.arquivo ?? '',
+  });
+
+  const datas = [...new Set(linhas.map((l) => l.data).filter(Boolean))].sort();
+  const reprocesso = datas.length
+    ? await processamento.reprocessarPeriodo(req.tenantId, datas[0], datas[datas.length - 1])
+    : { dias: 0, resolvidas: 0 };
+
+  if (reprocesso.resolvidas > 0) {
+    auditar(req, {
+      entidade: 'Escalas',
+      acao: 'Pendências resolvidas automaticamente',
+      valorNovo: `${reprocesso.resolvidas} pendência(s)`,
+      motivo: 'A escala importada passou a servir de referência para dias já analisados.',
+    });
+  }
+
+  res.json({ ...r, reprocesso });
+}));
+
+/* ---------------------------------------------------------------- análise e fila */
+
+tenantRouter.get('/analises', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(await analises.listar(req.tenantId, req.query));
+}));
+
+/* "Por que isso apareceu?" — a explicação completa de uma jornada.
+ *
+ * Devolve a referência usada, o padrão vigente lado a lado, o ponto, cada divergência com previsto
+ * e realizado, e a reincidência da pessoa. É tudo que a tela precisa: ela não recalcula nada. */
+tenantRouter.get('/analises/:id/explicacao', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  const a = await analises.obter(req.tenantId, req.params.id);
+  if (!a) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Análise não encontrada.' });
+
+  const reincidencia = await analises.reincidenciaDe(req.tenantId, a.colaboradorChave, { ate: a.data });
+
+  res.json({
+    ...a,
+    reincidencia,
+    /* A explicação em uma frase, montada no servidor para que a interface não produza uma segunda
+     * versão do mesmo texto. */
+    porQue: a.referenciaTipo === 'escala'
+      ? `A jornada foi comparada contra a ESCALA do dia (${a.referenciaHorarios})${a.padraoHorarios ? `, e não contra o horário padrão (${a.padraoHorarios}), porque existe escala específica para esta data` : ''}.`
+      : a.referenciaTipo === 'padrao'
+        ? `Não havia escala específica para esta data, então a jornada foi comparada contra o HORÁRIO PADRÃO vigente (${a.referenciaHorarios}).`
+        : 'Não havia escala do dia nem horário padrão vigente nesta data: não há referência para comparar o ponto.',
+  });
+}));
+
+/* Referência de um colaborador numa data, isolada. Serve à tela de escalas e à conferência. */
+tenantRouter.get('/referencia/:data/:colaborador', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  const { chaveColaborador } = he;
+  res.json(await resolverReferencia(req.tenantId, chaveColaborador(req.params.colaborador), req.params.data));
+}));
+
+tenantRouter.get('/fila', exigirPermissao(P.PENDENCIA_LER), rota(async (req, res) => {
+  const filtros = { ...req.query };
+  /* Filtro rápido vira lista de tipos no servidor: a interface pede pelo nome do filtro, e a
+   * definição de "o que é crítico" mora num lugar só. */
+  if (filtros.rapido && analises.FILTROS_RAPIDOS[filtros.rapido]) {
+    filtros.tipos = analises.FILTROS_RAPIDOS[filtros.rapido];
+  }
+  res.json(await analises.listarFila(req.tenantId, filtros));
+}));
+
+tenantRouter.get('/fila/contadores', exigirPermissao(P.PENDENCIA_LER), rota(async (req, res) => {
+  res.json(await analises.contadoresDaFila(req.tenantId));
+}));
+
+/* Reprocessa um período já gravado. Não recebe dado — só reexecuta a análise sobre o que já
+ * existe, o que é seguro por construção: a análise é derivada. */
+tenantRouter.post('/reprocessar', exigirPermissao(P.DADOS_ESCREVER), rota(async (req, res) => {
+  const { de = null, ate = null } = req.body ?? {};
+  const r = await processamento.reprocessarPeriodo(req.tenantId, de, ate);
+  auditar(req, {
+    entidade: 'Jornadas',
+    acao: 'Reprocessamento manual',
+    valorNovo: `${r.dias} dia(s), ${r.analisadas} jornada(s); ${r.resolvidas} pendência(s) resolvida(s)`,
+    motivo: de || ate ? `Período ${de ?? 'início'} → ${ate ?? 'fim'}` : 'Todo o histórico',
+  });
+  res.json(r);
+}));
+
+/* ---------------------------------------------------------------- resumos e análise gerencial */
+
+tenantRouter.get('/resumo/diario/:data', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(await resumos.resumoDiario(req.tenantId, req.params.data));
+}));
+
+tenantRouter.get('/resumo/semanal/:data', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  const dias = Number(req.query.dias) || 7;
+  res.json(await resumos.resumoSemanal(req.tenantId, req.params.data, dias));
+}));
+
+/* Pergunta gerencial.
+ *
+ * ISOLAMENTO: os dados enviados ao modelo saem exclusivamente de consultas filtradas por
+ * `req.tenantId`, e a rota exige a permissão de leitura do usuário. Não existe caminho pelo qual
+ * dado de outra empresa chegue à IA — nem por engano de parâmetro, porque `tenantId` vem da
+ * sessão, nunca do corpo. */
+tenantRouter.post('/analise-gerencial', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  const pergunta = String(req.body?.pergunta ?? '').trim();
+  if (pergunta.length < 5) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Escreva a pergunta.' });
+  }
+  res.json(await resumos.analiseGerencial(req.tenantId, pergunta, {
+    ate: req.body?.ate ?? null,
+    dias: Number(req.body?.dias) || 7,
+  }));
+}));
+
+/* Mensagem para o colaborador, a partir dos fatos da ocorrência.
+ *
+ * Nunca envia nada: devolve texto para revisão humana. O envio automático (WhatsApp e afins) está
+ * explicitamente fora desta fase. */
+tenantRouter.post('/analises/:id/mensagem', exigirPermissao(P.PENDENCIA_TRATAR), rota(async (req, res) => {
+  const a = await analises.obter(req.tenantId, req.params.id);
+  if (!a) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Análise não encontrada.' });
+
+  const tipo = req.body?.tipo;
+  const divergencia = tipo
+    ? a.divergencias.find((d) => d.tipo === tipo)
+    : a.divergencias[0];
+
+  if (!divergencia) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Esta jornada não tem divergência para comunicar.' });
+  }
+
+  const r = await mensagens.gerar({ ...a, rotuloReferencia: a.referenciaTipo }, divergencia, {
+    usarIA: req.body?.usarIA !== false,
+  });
+
+  auditar(req, {
+    entidade: `Mensagem — ${a.colaborador} ${a.data}`,
+    acao: 'Mensagem ao colaborador gerada',
+    valorNovo: divergencia.rotulo,
+    motivo: `Origem do texto: ${r.origem}`,
+  });
+
+  res.json(r);
+}));
+
+tenantRouter.get('/ia/estado', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
+  res.json(ia.estado());
 }));
 
 /* ---------------------------------------------------------------- feedback do piloto */

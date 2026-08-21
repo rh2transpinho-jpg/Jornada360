@@ -157,7 +157,7 @@ describe('ciclo completo: cifra, sobe, baixa, decifra, restaura', () => {
     instalarB2Falso();
     const r = await executarBackupExterno(CFG);
 
-    expect(r.ok).toBe(true);
+    expect(r.ok, r.erro).toBe(true);
     expect(r.sha1Remoto).toBe(r.sha1Local);
     expect(r.bytes).toBeGreaterThan(0);
     expect(r.arquivo).toMatch(/^jornada360\/jornada360-.*\.sql\.enc$/);
@@ -184,13 +184,52 @@ describe('ciclo completo: cifra, sobe, baixa, decifra, restaura', () => {
   it('a restauração isolada abre o banco e valida a estrutura', async () => {
     const r = await testarRestauracaoExterna(enviado.arquivo, CFG);
 
-    expect(r.ok).toBe(true);
+    expect(r.ok, r.erro).toBe(true);
     expect(r.hash).toBe(enviado.hash);
     expect(r.contagens.tenants).toBeGreaterThanOrEqual(1);
     expect(r.contagens.users).toBeGreaterThanOrEqual(1);
     /* A ocorrência de HE precisa voltar: é onde vivem as justificativas, o dado mais caro de
      * reconstruir se for perdido. */
     expect(r.contagens.he_ocorrencias).toBeGreaterThanOrEqual(1);
+  });
+
+  /* ESTE TESTE EXISTE POR CAUSA DE UM DEFEITO REAL, E OLHA PARA O FUTURO.
+   *
+   * A rotina de restauração já teve uma cópia manual da lista de migrations. Acrescentar uma
+   * migration passou a quebrar o restore em silêncio: o backup continuava subindo todo dia, e a
+   * falha só apareceria na única hora em que ela é fatal — a hora de recuperar.
+   *
+   * O teste acima só pega isso quando o dump por acaso exercita a coluna nova. Este aqui pega
+   * sempre: confere que TODA tabela do backup existe no schema que a restauração monta. Uma
+   * migration nova sem atualizar `TABELAS`, ou uma lista de migrations fora de sincronia,
+   * derrubam este teste no mesmo dia em que forem escritas. */
+  it('o schema da restauração cobre todas as tabelas do backup', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { readFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join, dirname } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const { MIGRACOES } = await import('./db/index.js');
+    const { TABELAS } = await import('./lib/infraestrutura.js');
+
+    const raizDb = join(dirname(fileURLToPath(import.meta.url)), 'db');
+    const caminho = join(tmpdir(), `jornada360-schema-${Date.now()}.db`);
+    const db = new DatabaseSync(caminho);
+
+    try {
+      for (const m of MIGRACOES) {
+        db.exec(readFileSync(join(raizDb, m.arquivo), 'utf8').replace(/^\s*PRAGMA[^;]*;/gim, ''));
+      }
+      const existentes = new Set(
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name),
+      );
+      const faltando = TABELAS.filter((t) => !existentes.has(t));
+      expect(faltando, `tabelas do backup ausentes no schema restaurado: ${faltando.join(', ')}`).toEqual([]);
+    } finally {
+      db.close();
+      const { rmSync } = await import('node:fs');
+      try { rmSync(caminho); } catch { /* já pode ter sumido */ }
+    }
   });
 
   it('a restauração RECUSA um arquivo adulterado no bucket', async () => {
