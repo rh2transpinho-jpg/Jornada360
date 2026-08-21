@@ -27,7 +27,8 @@
     "diagnostico-turso": "node scripts/diagnostico-turso.js",
     "backup-externo": "node scripts/backup-externo.js",
     "restaurar-externo": "node scripts/restaurar-externo.js",
-    "gerar-chave-backup": "node scripts/gerar-chave-backup.js"
+    "gerar-chave-backup": "node scripts/gerar-chave-backup.js",
+    "verificar": "node scripts/verificar.js"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

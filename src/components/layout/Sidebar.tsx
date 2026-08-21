@@ -4,12 +4,13 @@ import {
   Fingerprint,
   Timer,
   ClipboardCheck,
-  Repeat2,
   Award,
   Inbox,
   ListChecks,
   Building2,
+  CalendarDays,
   CalendarRange,
+  Clock,
   ShieldCheck,
   UploadCloud,
   Settings,
@@ -18,7 +19,20 @@ import {
 import { useHEEngineData } from '../../engine/useHEEngineData';
 import { useWorkspace } from '../../workspace/WorkspaceContext';
 
+/* O MENU É UMA DECISÃO SOBRE ATENÇÃO, NÃO UM ÍNDICE DE TELAS.
+ *
+ * "Minha Fila" abre a lista porque é onde o trabalho do dia acontece: ela mostra só o que precisa
+ * de gente, já explicado. Antes dela vinha o Dashboard, que responde "como estamos" — pergunta
+ * legítima, mas que ninguém faz às sete da manhã com 14 pendências abertas.
+ *
+ * O Ranking de Reincidência SAIU daqui e NÃO foi apagado: continua em /reincidencia, alcançável
+ * pelo Dashboard, pela Análise por Setor e pelos Relatórios. A razão é que reincidência virou
+ * inteligência transversal — o número aparece dentro da ocorrência que está sendo analisada
+ * ("é a quinta vez este mês"), que é onde ele muda uma decisão. Um ranking numa tela própria é
+ * consulta ocasional, não rotina diária, e ocupava uma linha do menu que Escalas e Horários
+ * Padrão usam melhor. */
 const NAV = [
+  { to: '/fila', label: 'Minha Fila', icon: Inbox, countKey: 'pendencias' as const },
   { to: '/', label: 'Dashboard Executivo', icon: LayoutDashboard, end: true },
   { to: '/ponto', label: 'Controle de Ponto', icon: Fingerprint },
   { to: '/he1', label: 'Horas Extras HE1', icon: Timer },
@@ -26,9 +40,9 @@ const NAV = [
      responde "por que este colaborador teve hora extra neste dia". */
   { to: '/horas-extras', label: 'Controle de HE', icon: FileText },
   { to: '/motor-he', label: 'Assistente HE Diário', icon: ClipboardCheck },
-  { to: '/reincidencia', label: 'Ranking de Reincidência', icon: Repeat2 },
+  { to: '/escalas', label: 'Escalas', icon: CalendarDays },
+  { to: '/horarios-padrao', label: 'Horários Padrão', icon: Clock },
   { to: '/score', label: 'Score do Colaborador', icon: Award },
-  { to: '/pendencias', label: 'Pendências', icon: Inbox, countKey: 'pendencias' as const },
   { to: '/centro-de-acoes', label: 'Centro de Ações', icon: ListChecks },
   { to: '/setores', label: 'Análise por Setor', icon: Building2 },
   { to: '/relatorios', label: 'Relatórios', icon: CalendarRange },

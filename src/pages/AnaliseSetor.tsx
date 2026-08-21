@@ -1,7 +1,8 @@
 /* Análise por Setor — lê os agregados prontos do analyticsService (mesma regra de rateio que o
  * Dashboard Executivo usa no ranking de setores) e exibe o status unificado em cada caso. */
+import { Link } from 'react-router-dom';
 import { Fragment, useMemo, useState } from 'react';
-import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronRight, Repeat2 } from 'lucide-react';
 import { useHEEngineData } from '../engine/useHEEngineData';
 import { calcularPorSetor } from '../services/analyticsService';
 import { statusDoCaso } from '../services/pendingClassificationService';
@@ -23,10 +24,19 @@ export default function AnaliseSetor() {
           <h1 className="page-title">Análise por Setor</h1>
           <p className="page-subtitle">Hora extra agrupada por setor responsável — clique numa linha para ver os casos</p>
         </div>
-        <button className="btn" onClick={refresh}>
-          <RefreshCw size={14} />
-          Atualizar
-        </button>
+        <div className="acoes-topo">
+          {/* O Ranking saiu do menu principal quando a reincidência virou informação transversal
+              (ela aparece dentro de cada ocorrência). Mas a visão consolidada continua valendo, e
+              é aqui — ao lado da análise agregada — que alguém pensa em pedi-la. */}
+          <Link className="btn" to="/reincidencia">
+            <Repeat2 size={14} />
+            Ranking de Reincidência
+          </Link>
+          <button className="btn" onClick={refresh}>
+            <RefreshCw size={14} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {dias.length === 0 ? (

@@ -3,8 +3,9 @@
  * A tela filtra os dias/pendências pelo período e entrega ao reportService, que monta a tabela.
  * Nenhum número é calculado aqui: o mesmo dado que aparece no Dashboard e nas telas operacionais
  * é o que sai no CSV. */
+import { Link } from 'react-router-dom';
 import { useMemo, useState } from 'react';
-import { RefreshCw, Download, FileText } from 'lucide-react';
+import { RefreshCw, Download, FileText, Repeat2 } from 'lucide-react';
 import { useHEEngineData } from '../engine/useHEEngineData';
 import { useWorkspace } from '../workspace/WorkspaceContext';
 import { useAppState } from '../state/AppState';
@@ -132,10 +133,19 @@ export default function Relatorios() {
           <h1 className="page-title">Relatórios</h1>
           <p className="page-subtitle">Escolha o período e o relatório — o mesmo dado das telas, pronto para exportar</p>
         </div>
-        <button className="btn" onClick={refresh}>
-          <RefreshCw size={14} />
-          Atualizar
-        </button>
+        <div className="acoes-topo">
+          {/* O Ranking saiu do menu principal quando a reincidência virou informação transversal
+              (ela aparece dentro de cada ocorrência). Mas a visão consolidada continua valendo, e
+              é aqui — ao lado da análise agregada — que alguém pensa em pedi-la. */}
+          <Link className="btn" to="/reincidencia">
+            <Repeat2 size={14} />
+            Ranking de Reincidência
+          </Link>
+          <button className="btn" onClick={refresh}>
+            <RefreshCw size={14} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {dias.length === 0 ? (

@@ -1675,3 +1675,432 @@ table.data-table {
   .he-form__linha { grid-template-columns: 1fr; }
   .he-toolbar .input { width: 100% !important; }
 }
+
+/* ============================================================================
+   ESCALAS · HORÁRIOS PADRÃO · MINHA FILA
+   ========================================================================= */
+
+/* Ações no topo da página. Separado de `.toolbar` porque alinha à direita do cabeçalho e não é
+   uma barra de filtros. */
+.acoes-topo {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.acoes-linha {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toolbar--filtros {
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.filtros-linha {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+/* Rótulo em cima, campo embaixo. Rótulo ao lado do campo fica ilegível quando há cinco filtros
+   na mesma linha. */
+.campo-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.campo-inline > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.campo-inline .input { min-width: 150px; }
+.campo-inline--largo .input { min-width: 260px; }
+
+.card--alerta { border-color: var(--orange); }
+.card--resumo { margin-bottom: 16px; }
+
+.titulo-alerta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--orange);
+}
+
+.lista-alertas,
+.lista-resultado {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.aviso-erro {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--red);
+}
+
+/* ---------- cobertura do dia ---------- */
+
+.cobertura-listas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 18px;
+}
+.cobertura-lista h3 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+}
+.cobertura-lista ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.cobertura-lista p { margin: 0; font-size: 13px; }
+
+/* ---------- marcações de jornada ---------- */
+
+/* Duas colunas: entrada à esquerda, saída à direita. A forma da grade repete a forma da jornada,
+   o que torna um par incompleto visível de imediato. */
+.marcacoes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.marcacao {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+
+/* ---------- importação ---------- */
+
+.he-painel--largo { width: min(900px, 100%); }
+
+.passos {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  flex-wrap: wrap;
+}
+.passo {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.passo--ativo {
+  border-color: var(--brand-500);
+  color: var(--brand-400);
+  background: var(--brand-100);
+}
+.passo--feito { color: var(--text-muted); }
+
+.drop-arquivo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 18px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.drop-arquivo:hover { border-color: var(--brand-500); color: var(--brand-400); }
+.drop-arquivo input { display: none; }
+
+.mapa-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.previa-resumo {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.previa-problemas {
+  margin: 4px 0 0;
+  padding-left: 15px;
+  font-size: 11.5px;
+  color: var(--red);
+  line-height: 1.5;
+}
+
+.passo-acoes {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* ---------- resumo do dia ---------- */
+
+.resumo-dia {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.resumo-dia__numeros {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+.resumo-dia__numeros > div {
+  display: flex;
+  flex-direction: column;
+}
+.resumo-dia__numeros strong {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.resumo-dia__numeros span {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.resumo-dia__numeros .ok strong { color: var(--green); }
+.resumo-dia__numeros .atencao strong { color: var(--orange); }
+.resumo-dia__numeros .critico strong { color: var(--red); }
+
+.resumo-dia__tipos {
+  display: flex;
+  gap: 6px 20px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.resumo-dia__tipos li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--gray);
+  flex-shrink: 0;
+}
+.ponto--critico { background: var(--red); }
+.ponto--atencao { background: var(--orange); }
+.ponto--ok { background: var(--green); }
+
+/* ---------- fila ---------- */
+
+.he-chip__n {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.fila-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A faixa colorida à esquerda é a leitura mais rápida da fila: dá para varrer a coluna e achar
+   os críticos sem ler nenhum texto. */
+.fila-item {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gray);
+  border-radius: var(--radius-md);
+  padding: 12px 15px;
+  background: var(--surface-muted);
+}
+.fila-item--critico { border-left-color: var(--red); }
+.fila-item--atencao { border-left-color: var(--orange); }
+
+.fila-item__cabeca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.fila-item__desc {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.fila-item__evidencias {
+  margin: 0 0 6px;
+  padding-left: 15px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.fila-item__recomendacao {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--brand-400);
+}
+
+.fila-limpa {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  color: var(--green);
+}
+
+/* ---------- por que isso apareceu ---------- */
+
+.explicacao-porque {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 13px 15px;
+  border: 1px solid var(--brand-600);
+  border-radius: var(--radius-md);
+  background: var(--brand-100);
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.explicacao-porque svg { flex-shrink: 0; margin-top: 1px; color: var(--brand-400); }
+
+/* As três fontes lado a lado. A que foi usada fica destacada — é a resposta visual a contra qual
+   horário o ponto foi comparado. */
+.referencia-comparacao {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.ref-bloco {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  opacity: 0.62;
+}
+.ref-bloco--usada {
+  opacity: 1;
+  border-color: var(--brand-500);
+  background: var(--brand-100);
+}
+.ref-bloco--ponto { opacity: 1; }
+.ref-bloco__rotulo {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.ref-bloco__marca {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--brand-400);
+}
+
+.divergencias {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.divergencias > li {
+  padding-left: 11px;
+  border-left: 2px solid var(--orange);
+  font-size: 13px;
+}
+.divergencia-linha {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.divergencia-linha b { color: var(--text); }
+
+.reincidencia {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.reincidencia strong { color: var(--orange); }
+
+.he-linha-tempo--aninhada {
+  margin-top: 8px;
+  padding-left: 14px;
+  border-left: 1px dashed var(--border);
+}
+
+@media (max-width: 700px) {
+  .marcacoes-grid { grid-template-columns: 1fr; }
+  .mapa-grid { grid-template-columns: 1fr; }
+  .resumo-dia__numeros { gap: 16px; }
+  .filtros-linha { width: 100%; }
+  .campo-inline .input,
+  .campo-inline--largo .input { min-width: 0; width: 100%; }
+  .campo-inline { flex: 1 1 140px; }
+  .toolbar--filtros { align-items: stretch; }
+}
