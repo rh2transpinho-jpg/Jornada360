@@ -62,6 +62,20 @@ services:
       - key: JORNADA_TRUST_PROXY
         value: "1"
 
+      # ---- empresa operadora
+      # Para onde vão os alertas de infraestrutura (backup atrasado, restauração não testada).
+      # Sem esta variável, `sincronizarAlertas` não faz nada e devolve o motivo — os alertas
+      # simplesmente não têm destino.
+      #
+      # NÃO É SEGREDO: é o identificador interno da empresa que opera o sistema, e ele não dá
+      # acesso a nada por si só. Fica versionado aqui de propósito, que é a razão deste arquivo
+      # existir — configuração na memória de quem clicou é configuração que se perde.
+      #
+      # Isto NÃO altera o isolamento multiempresa: a variável só diz em qual empresa a pendência
+      # de infraestrutura é criada. Nenhuma consulta atravessa empresas por causa dela.
+      - key: JORNADA_TENANT_OPERADOR
+        value: ten_409f980fdc581bfeb6
+
       # ---- e-mail
       # "desativado" publica sem envio: recuperação de senha e convite passam a exigir entrega
       # manual do código, e a interface diz isso. Troque para "smtp" quando tiver um provedor.
