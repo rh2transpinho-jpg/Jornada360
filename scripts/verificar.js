@@ -174,17 +174,24 @@ async function checarProntidao(url) {
 async function checarBackup(url) {
   const r = await fetch(`${url}/api/prontidao`, { headers: { 'x-jornada-cliente': 'api' } });
   const corpo = await r.json();
-  const b = corpo.backup ?? corpo.backupExterno;
 
-  if (!b) return 'painel de backup não exposto nesta versão';
-  if (b.configurado === false) throw new Error('Backup externo não configurado no ambiente.');
+  /* O backup vive em `componentes.backup` na prontidão. A primeira versão desta função procurava
+   * em `corpo.backup` e devolvia "não exposto nesta versão" — um passo que passava sempre, o que
+   * é pior do que não ter passo nenhum: dá a impressão de que o backup foi conferido. */
+  const b = corpo.componentes?.backup;
+  if (!b) throw new Error('A prontidão não informa o estado do backup.');
+  if (b.ok === false) throw new Error(b.observacao || 'Backup reportado como indisponível.');
 
   const ultimo = b.ultimoEm ?? b.ultimo ?? null;
-  if (!ultimo) throw new Error('Nenhum backup externo registrado ainda.');
+  if (ultimo) {
+    const horas = (Date.now() - new Date(ultimo).getTime()) / 3_600_000;
+    if (horas > 48) throw new Error(`Último backup há ${Math.round(horas)}h — mais de 48h.`);
+    return `modo ${b.modo} · último há ${Math.round(horas)}h`;
+  }
 
-  const horas = (Date.now() - new Date(ultimo).getTime()) / 3_600_000;
-  if (horas > 48) throw new Error(`Último backup há ${Math.round(horas)}h — mais de 48h.`);
-  return `último backup há ${Math.round(horas)}h`;
+  /* Banco gerenciado (Turso): o backup é do provedor e não há carimbo local para conferir. Dizer
+   * isso é honesto; fingir que verificamos, não. */
+  return `modo ${b.modo}${b.observacao ? ` — ${b.observacao.split('.')[0]}` : ''}`;
 }
 
 /* ---------------------------------------------------------------- execução */
