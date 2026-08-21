@@ -426,9 +426,10 @@ function PainelExplicacao({
                         className="input" rows={4} value={mensagem.mensagem}
                         onChange={(e) => setMensagem({ ...mensagem, mensagem: e.target.value })}
                       />
+                      {/* Só a observação do servidor: ela já diz a origem, e prefixar aqui
+                          produzia a mesma frase duas vezes seguidas. */}
                       <p className="text-faint" style={{ fontSize: 11.5, marginTop: 4 }}>
-                        {mensagem.origem === 'ia' ? 'Redigida por IA sobre os fatos apurados.' : 'Gerada pelo modelo determinístico do sistema.'}
-                        {' '}{mensagem.observacao}
+                        {mensagem.observacao}
                       </p>
                       <div className="acoes-linha" style={{ marginTop: 8 }}>
                         <button className="btn" onClick={() => void copiar()}>

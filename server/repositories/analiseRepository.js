@@ -288,8 +288,21 @@ export async function reincidenciasDaJanela(tenantId, ate, dias = 30) {
 const GERA_PENDENCIA = new Set([
   'trabalho_em_folga', 'sem_referencia', 'ponto_sem_escala', 'escala_sem_ponto',
   'sem_intervalo', 'intervalo_insuficiente', 'intervalo_divergente', 'intervalo_fora_do_previsto',
-  'registros_incompativeis', 'jornada_incompleta', 'he_potencial',
+  'registros_incompativeis', 'jornada_incompleta',
   'entrada_atrasada', 'entrada_antecipada', 'saida_antecipada', 'saida_posterior',
+
+  /* `he_potencial` NÃO entra aqui, e isso é deliberado.
+   *
+   * A hora extra sem justificativa já gera pendência por outro caminho, mais antigo e mais rico:
+   * `heRepository.gerarPendencias()` cria uma pendência LIGADA à ocorrência (`he_ocorrencia_id`),
+   * que se encerra sozinha no instante em que alguém registra a justificativa.
+   *
+   * Gerar as duas encheria a fila com o mesmo fato escrito de duas formas — "Possível hora extra"
+   * e "2h16 de HE sem justificativa" — e uma delas continuaria aberta depois de a pessoa ter
+   * tratado a outra. Um fato, uma pendência; sobrevive a que tem o ciclo de vida completo.
+   *
+   * `he_potencial` continua sendo uma DIVERGÊNCIA: aparece na análise, na explicação da ocorrência
+   * e no resumo do dia. Só não vira uma segunda linha na fila. */
 ]);
 
 function prioridadeTexto(gravidade) {
@@ -471,11 +484,21 @@ export async function listarFila(tenantId, filtros = {}) {
   return linhas.map((l) => ({
     ...l,
     evidencias: JSON.parse(l.evidencias || '[]'),
-    rotuloTipo: ROTULO_DIVERGENCIA[l.tipo] ?? l.tipo,
-    gravidade: GRAVIDADE[l.tipo] ?? 'atencao',
+    rotuloTipo: ROTULO_TIPO_FILA[l.tipo] ?? ROTULO_DIVERGENCIA[l.tipo] ?? l.tipo,
+    gravidade: GRAVIDADE_FILA[l.tipo] ?? GRAVIDADE[l.tipo] ?? 'atencao',
     resolvidaAutomaticamente: !!l.resolvidaAutomaticamente,
   }));
 }
+
+/* Tipos de pendência que NÃO vêm da análise de divergência e por isso não estão em
+ * `ROTULO_DIVERGENCIA`. Hoje é só a hora extra sem justificativa, criada por `heRepository`. */
+const ROTULO_TIPO_FILA = {
+  he_sem_justificativa: 'Hora extra sem justificativa',
+};
+
+const GRAVIDADE_FILA = {
+  he_sem_justificativa: 'atencao',
+};
 
 /* Contadores dos filtros rápidos. Saem da mesma tabela que a lista — os números do topo nunca
  * discordam do que está logo abaixo. */
@@ -491,7 +514,7 @@ export async function contadoresDaFila(tenantId) {
   for (const l of linhas) {
     porTipo[l.tipo] = (porTipo[l.tipo] ?? 0) + Number(l.total);
     total += Number(l.total);
-    if ((GRAVIDADE[l.tipo] ?? 'atencao') === 'critico') criticos += Number(l.total);
+    if ((GRAVIDADE_FILA[l.tipo] ?? GRAVIDADE[l.tipo] ?? 'atencao') === 'critico') criticos += Number(l.total);
   }
 
   const soma = (tipos) => tipos.reduce((s, t) => s + (porTipo[t] ?? 0), 0);
@@ -499,7 +522,9 @@ export async function contadoresDaFila(tenantId) {
   return {
     total,
     criticos,
-    he: soma(['he_potencial']),
+    /* O filtro "HE" recorta a pendência de hora extra sem justificativa, que é a que existe na
+     * fila — `he_potencial` é divergência, não pendência (ver GERA_PENDENCIA). */
+    he: soma(['he_sem_justificativa']),
     intervalos: soma(['sem_intervalo', 'intervalo_insuficiente', 'intervalo_divergente', 'intervalo_fora_do_previsto']),
     escala: soma(['ponto_sem_escala', 'escala_sem_ponto', 'trabalho_em_folga']),
     semReferencia: soma(['sem_referencia', 'ponto_sem_escala']),
@@ -511,7 +536,7 @@ export async function contadoresDaFila(tenantId) {
 export const FILTROS_RAPIDOS = {
   todos: null,
   criticos: Object.entries(GRAVIDADE).filter(([, g]) => g === 'critico').map(([t]) => t),
-  he: ['he_potencial'],
+  he: ['he_sem_justificativa'],
   intervalos: ['sem_intervalo', 'intervalo_insuficiente', 'intervalo_divergente', 'intervalo_fora_do_previsto'],
   escala: ['ponto_sem_escala', 'escala_sem_ponto', 'trabalho_em_folga'],
   sem_referencia: ['sem_referencia', 'ponto_sem_escala'],

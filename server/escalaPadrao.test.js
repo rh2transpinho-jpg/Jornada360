@@ -119,7 +119,7 @@ describe('BLOQUEADOR — a escala do dia tem precedência sobre o horário padr�
   });
 
   it('com escala 06:00–17:00 no dia, a referência passa a ser a ESCALA', async () => {
-    const r = await req('PUT', T('/escalas'), {
+    const r = await req('PUT', T('/escalas-dia'), {
       token: A.token,
       corpo: {
         colaborador: 'João da Silva', data: '2026-08-20', situacao: 'alteracao_horario',
@@ -288,7 +288,7 @@ describe('BLOQUEADOR — reprocessar preserva a análise humana', () => {
 
   it('a escala é corrigida e o dia reprocessado — a HE muda, a justificativa fica', async () => {
     /* Correção da escala: a saída prevista passa a ser 18:00. */
-    await req('PUT', T('/escalas'), {
+    await req('PUT', T('/escalas-dia'), {
       token: A.token,
       corpo: {
         colaborador: 'João da Silva', data: '2026-08-20', situacao: 'alteracao_horario',
@@ -352,7 +352,7 @@ describe('processamento automático separa o que precisa de gente do que não pr
     }
 
     /* Carla está de folga nesse dia. */
-    await req('PUT', T('/escalas'), {
+    await req('PUT', T('/escalas-dia'), {
       token: A.token,
       corpo: { colaborador: 'Carla Folga', data: DIA, situacao: 'folga', marcacoes: [] },
     });
@@ -438,6 +438,63 @@ describe('processamento automático separa o que precisa de gente do que não pr
   });
 });
 
+/* ================================================================ defeitos achados na validação */
+
+describe('defeitos que a validação com dados fictícios revelou', () => {
+  it('a hora extra gera UMA pendência, não duas', async () => {
+    /* Antes desta correção, o mesmo fato entrava na fila duas vezes: "Possível hora extra", vinda
+     * da análise de divergência, e "HE sem justificativa", vinda da ocorrência. Quem tratasse uma
+     * veria a outra continuar aberta.
+     *
+     * Sobrevive a que está ligada à ocorrência, porque ela se encerra sozinha quando alguém
+     * justifica. `he_potencial` continua existindo como divergência — só não vira segunda linha. */
+    const fila = await req('GET', T('/fila?data=2026-08-20'), { token: A.token });
+    const deHE = fila.corpo.filter((p) => p.tipo === 'he_potencial' || p.tipo === 'he_sem_justificativa');
+
+    expect(deHE.filter((p) => p.tipo === 'he_potencial')).toHaveLength(0);
+
+    /* E a divergência continua visível na análise. */
+    const analises = await req('GET', T('/analises?data=2026-08-20'), { token: A.token });
+    const joao = analises.corpo.find((a) => a.colaborador === 'João da Silva');
+    expect(joao.divergencias.some((d) => d.tipo === 'he_potencial')).toBe(true);
+  });
+
+  it('um buraco entre vigências é DENUNCIADO — não vira silêncio', async () => {
+    /* O caso real: cadastrar uma vigência histórica fechada encerra a vigência aberta anterior, e
+     * o período seguinte fica descoberto. Ninguém percebe até uma jornada aparecer como
+     * "referência não encontrada", já com o dia processado.
+     *
+     * A sobreposição o sistema resolve sozinho; o buraco ele NÃO tem como resolver, porque a
+     * resposta certa é um horário que ninguém informou. */
+    await req('POST', T('/padroes'), {
+      token: A.token,
+      corpo: {
+        colaborador: 'Buraco Silva', marcacoes: ['08:00', '17:00'],
+        cargaPrevistaMin: 480, vigenciaInicio: '2026-01-01',
+      },
+    });
+    /* Vigência histórica FECHADA: encerra a aberta acima em 31/05 e termina em 31/07. */
+    await req('POST', T('/padroes'), {
+      token: A.token,
+      corpo: {
+        colaborador: 'Buraco Silva', marcacoes: ['09:00', '18:00'],
+        cargaPrevistaMin: 480, vigenciaInicio: '2026-06-01', vigenciaFim: '2026-07-31',
+      },
+    });
+
+    const r = await req('GET', T('/padroes/alertas'), { token: A.token });
+    const alerta = r.corpo.find((a) => a.colaborador === 'Buraco Silva');
+
+    expect(alerta).toBeDefined();
+    expect(alerta.tipo).toBe('sem_vigencia_atual');
+    expect(alerta.mensagem).toContain('2026-08-01');
+
+    /* E a consequência é real: uma jornada em agosto fica sem referência. */
+    const ref = await req('GET', T('/referencia/2026-08-15/Buraco Silva'), { token: A.token });
+    expect(ref.corpo.tipo).toBe('nao_encontrada');
+  });
+});
+
 /* ================================================================ resolução automática */
 
 describe('a pendência se encerra sozinha quando a causa deixa de existir', () => {
@@ -457,7 +514,7 @@ describe('a pendência se encerra sozinha quando a causa deixa de existir', () =
   });
 
   it('importar a escala do dia resolve a pendência SEM ninguém fechar à mão', async () => {
-    const r = await req('POST', T('/escalas/importacao'), {
+    const r = await req('POST', T('/escalas-dia/importacao'), {
       token: A.token,
       corpo: {
         arquivo: 'escala-agosto.xlsx',
@@ -495,7 +552,7 @@ describe('a pendência se encerra sozinha quando a causa deixa de existir', () =
 
 describe('importar escala não sobrescreve em silêncio', () => {
   it('a prévia mostra o que mudaria, sem gravar', async () => {
-    const r = await req('POST', T('/escalas/importacao/previa'), {
+    const r = await req('POST', T('/escalas-dia/importacao/previa'), {
       token: A.token,
       corpo: {
         linhas: [{
@@ -518,7 +575,7 @@ describe('importar escala não sobrescreve em silêncio', () => {
   });
 
   it('linha com horário inválido é recusada, e o resto entra', async () => {
-    const r = await req('POST', T('/escalas/importacao'), {
+    const r = await req('POST', T('/escalas-dia/importacao'), {
       token: A.token,
       corpo: {
         arquivo: 'escala-torta.csv', formato: 'csv',
@@ -535,7 +592,7 @@ describe('importar escala não sobrescreve em silêncio', () => {
   });
 
   it('duas linhas para a mesma pessoa e data são apontadas como duplicidade', async () => {
-    const r = await req('POST', T('/escalas/importacao/previa'), {
+    const r = await req('POST', T('/escalas-dia/importacao/previa'), {
       token: A.token,
       corpo: {
         linhas: [
@@ -635,7 +692,7 @@ describe('BLOQUEADOR — nada disso cruza empresas', () => {
     const B = await novaEmpresa('vizinha');
     const TB = (c) => `/api/tenants/${B.tenantId}${c}`;
 
-    for (const caminho of ['/escalas', '/padroes', '/analises', '/fila']) {
+    for (const caminho of ['/escalas-dia', '/padroes', '/analises', '/fila']) {
       const r = await req('GET', TB(caminho), { token: B.token });
       expect(r.status).toBe(200);
       expect(r.corpo).toHaveLength(0);

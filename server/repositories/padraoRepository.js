@@ -225,6 +225,70 @@ export async function conflitosDeVigencia(tenantId) {
   return linhas;
 }
 
+/* Períodos SEM horário padrão vigente, entre duas vigências ou depois da última.
+ *
+ * É o alerta que faltava, e ele veio de um caso real na validação: cadastrar uma vigência
+ * histórica fechada (junho–julho) encerra a vigência aberta que existia antes dela — e o mês
+ * seguinte fica descoberto. Ninguém percebe até uma jornada aparecer como "referência não
+ * encontrada", já com o dia processado.
+ *
+ * A sobreposição o sistema resolve sozinho (a mais recente vence); o buraco ele NÃO tem como
+ * resolver, porque a resposta certa é um horário que ninguém informou. Por isso este alerta é
+ * mais importante que o de sobreposição. */
+export async function buracosDeVigencia(tenantId, ate = null) {
+  const limite = ate ?? hoje();
+  const linhas = await consultar(
+    `SELECT id, colaborador_chave AS chave, colaborador_nome AS colaborador,
+            vigencia_inicio AS inicio, vigencia_fim AS fim
+       FROM horarios_padrao
+      WHERE tenant_id = ? AND status = 'ativo'
+      ORDER BY colaborador_chave, vigencia_inicio`,
+    [tenantId],
+  );
+
+  const porPessoa = new Map();
+  for (const l of linhas) {
+    if (!porPessoa.has(l.chave)) porPessoa.set(l.chave, []);
+    porPessoa.get(l.chave).push(l);
+  }
+
+  const alertas = [];
+  for (const [, vigencias] of porPessoa) {
+    for (let i = 0; i < vigencias.length; i += 1) {
+      const atual = vigencias[i];
+      if (!atual.fim) continue; /* aberta: cobre daqui para a frente */
+
+      const proxima = vigencias[i + 1];
+      const inicioDoBuraco = diaSeguinte(atual.fim);
+
+      if (!proxima) {
+        /* Última vigência da pessoa, e ela terminou. Só é problema se já passou. */
+        if (atual.fim < limite) {
+          alertas.push({
+            tipo: 'sem_vigencia_atual', id: atual.id, colaborador: atual.colaborador,
+            mensagem: `Sem horário padrão vigente desde ${inicioDoBuraco}. Jornadas a partir dessa data ficam sem referência.`,
+          });
+        }
+        continue;
+      }
+
+      if (proxima.inicio > inicioDoBuraco) {
+        alertas.push({
+          tipo: 'buraco_de_vigencia', id: atual.id, colaborador: atual.colaborador,
+          mensagem: `Sem horário padrão entre ${inicioDoBuraco} e ${diaAnterior(proxima.inicio)}. Jornadas nesse intervalo ficam sem referência.`,
+        });
+      }
+    }
+  }
+  return alertas;
+}
+
+function diaSeguinte(data) {
+  const d = new Date(`${data}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 /* ---------------------------------------------------------------- escrita */
 
 function preparar(dados) {
@@ -509,6 +573,8 @@ export async function alertasDeQualidade(tenantId) {
       mensagem: `Duas vigências ativas cobrem a mesma data (${c.inicioA}–${c.fimA ?? 'sem fim'} e ${c.inicioB}–${c.fimB ?? 'sem fim'}).`,
     });
   }
+
+  for (const b of await buracosDeVigencia(tenantId)) alertas.push(b);
 
   const invalidos = await consultar(
     `SELECT id, colaborador_nome AS colaborador, marcacoes_json AS m FROM horarios_padrao

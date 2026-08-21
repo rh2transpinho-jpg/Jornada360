@@ -354,14 +354,21 @@ export function compararComReferencia(referencia, marcacoesReais, opcoes = {}) {
   });
 
   if (referencia.tipo === TIPO_AUSENTE) {
-    if (reais.length) {
-      achados.push(item(DIVERGENCIAS.PONTO_SEM_ESCALA, {
-        realizado: faixaLegivel(reais),
-        detalhe: 'Há ponto registrado, mas nenhuma escala do dia nem horário padrão vigente para comparar.',
-      }));
-    }
+    /* UMA divergência, não duas.
+     *
+     * Havia aqui um `ponto_sem_escala` junto com o `sem_referencia`, e os dois só apareciam
+     * juntos — porque "não há escala" e "não há referência nenhuma" são o mesmo estado quando
+     * também não há padrão vigente. Na validação isso virou duas linhas na fila para o mesmo
+     * colaborador, no mesmo dia, dizendo a mesma coisa.
+     *
+     * "Ponto sem escala" continua sendo uma pergunta legítima — mas de COBERTURA, e é respondida
+     * na tela de Escalas (`escalaRepository.cobertura`), onde faz sentido: lá ela vale mesmo para
+     * quem tem horário padrão e por isso não gera divergência nenhuma aqui. */
     achados.push(item(DIVERGENCIAS.SEM_REFERENCIA, {
-      detalhe: referencia.observacao,
+      realizado: reais.length ? faixaLegivel(reais) : '',
+      detalhe: reais.length
+        ? 'Há ponto registrado, mas nenhuma escala do dia nem horário padrão vigente para comparar.'
+        : referencia.observacao,
     }));
     return achados;
   }

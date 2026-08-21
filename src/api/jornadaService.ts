@@ -10,7 +10,9 @@
  * O `tenantId` vai na URL, nunca no corpo — o servidor o valida contra as memberships da sessão. */
 import { api } from './client';
 
-const base = (tenantId: string) => `/tenants/${encodeURIComponent(tenantId)}`;
+/* O `/api` faz parte do caminho, não do cliente: `api.BASE` é vazio em desenvolvimento (o proxy
+ * do Vite resolve) e continua vazio em produção (mesma origem). Ver src/api/client.ts. */
+const base = (tenantId: string) => `/api/tenants/${encodeURIComponent(tenantId)}`;
 
 function comFiltros(caminho: string, filtros: Record<string, unknown>): string {
   const p = new URLSearchParams();
@@ -286,36 +288,36 @@ export interface PreviaImportacao {
 /* ---------------------------------------------------------------- escalas */
 
 export function listarEscalas(tenantId: string, filtros: Record<string, unknown> = {}): Promise<Escala[]> {
-  return api.get<Escala[]>(comFiltros(`${base(tenantId)}/escalas`, filtros));
+  return api.get<Escala[]>(comFiltros(`${base(tenantId)}/escalas-dia`, filtros));
 }
 
 export function obterEscala(tenantId: string, id: string): Promise<Escala & { historico: EventoHistorico[] }> {
-  return api.get(`${base(tenantId)}/escalas/${encodeURIComponent(id)}`);
+  return api.get(`${base(tenantId)}/escalas-dia/${encodeURIComponent(id)}`);
 }
 
 export function opcoesDeEscala(tenantId: string): Promise<{
   turnos: string[]; setores: string[]; unidades: string[];
   situacoes: { valor: SituacaoEscala; rotulo: string }[];
 }> {
-  return api.get(`${base(tenantId)}/escalas/opcoes`);
+  return api.get(`${base(tenantId)}/escalas-dia/opcoes`);
 }
 
 export function coberturaDoDia(tenantId: string, data: string): Promise<Cobertura> {
-  return api.get<Cobertura>(`${base(tenantId)}/escalas/cobertura/${data}`);
+  return api.get<Cobertura>(`${base(tenantId)}/escalas-dia/cobertura/${data}`);
 }
 
 export function salvarEscala(tenantId: string, dados: Record<string, unknown>): Promise<Escala> {
-  return api.put<Escala>(`${base(tenantId)}/escalas`, dados);
+  return api.put<Escala>(`${base(tenantId)}/escalas-dia`, dados);
 }
 
 export function previaDeEscala(tenantId: string, linhas: unknown[]): Promise<PreviaImportacao> {
-  return api.post<PreviaImportacao>(`${base(tenantId)}/escalas/importacao/previa`, { linhas });
+  return api.post<PreviaImportacao>(`${base(tenantId)}/escalas-dia/importacao/previa`, { linhas });
 }
 
 export function importarEscala(
   tenantId: string, linhas: unknown[], meta: { arquivo?: string; formato?: string } = {},
 ): Promise<{ criadas: number; atualizadas: number; ignoradas: number; problemas: unknown[]; reprocesso: { dias: number; resolvidas: number } }> {
-  return api.post(`${base(tenantId)}/escalas/importacao`, { linhas, ...meta });
+  return api.post(`${base(tenantId)}/escalas-dia/importacao`, { linhas, ...meta });
 }
 
 /* ---------------------------------------------------------------- horários padrão */

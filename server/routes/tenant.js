@@ -596,31 +596,31 @@ tenantRouter.post('/padroes/importacao', exigirPermissao(P.CONFIG_ESCREVER), rot
 
 /* ---------------------------------------------------------------- escalas */
 
-tenantRouter.get('/escalas', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+tenantRouter.get('/escalas-dia', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
   res.json(await escalas.listar(req.tenantId, req.query));
 }));
 
-tenantRouter.get('/escalas/opcoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+tenantRouter.get('/escalas-dia/opcoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
   res.json(await escalas.opcoesDeFiltro(req.tenantId));
 }));
 
 /* Cobertura do dia: quem não tem escala, escala sem ponto e ponto sem escala — as três da mesma
  * comparação, para que não possam discordar entre si. */
-tenantRouter.get('/escalas/cobertura/:data', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+tenantRouter.get('/escalas-dia/cobertura/:data', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
   res.json(await escalas.cobertura(req.tenantId, req.params.data));
 }));
 
-tenantRouter.get('/escalas/importacoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+tenantRouter.get('/escalas-dia/importacoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
   res.json(await escalas.listarImportacoes(req.tenantId));
 }));
 
-tenantRouter.get('/escalas/:id', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+tenantRouter.get('/escalas-dia/:id', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
   const e = await escalas.obter(req.tenantId, req.params.id);
   if (!e) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Escala não encontrada.' });
   res.json({ ...e, historico: await escalas.historico(req.tenantId, req.params.id) });
 }));
 
-tenantRouter.put('/escalas', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+tenantRouter.put('/escalas-dia', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
   const antes = req.body?.colaborador && req.body?.data
     ? await escalas.obterDoDia(req.tenantId, req.body.colaborador, req.body.data)
     : null;
@@ -642,7 +642,7 @@ tenantRouter.put('/escalas', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req
 
 /* Passo 1 da importação: mostra o que MUDARIA, sem gravar. É o requisito de nunca sobrescrever
  * escala existente em silêncio. */
-tenantRouter.post('/escalas/importacao/previa', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+tenantRouter.post('/escalas-dia/importacao/previa', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
   res.json(await escalas.preverImportacao(req.tenantId, req.body?.linhas ?? []));
 }));
 
@@ -651,7 +651,7 @@ tenantRouter.post('/escalas/importacao/previa', exigirPermissao(P.CONFIG_ESCREVE
  * O reprocessamento é o que faz a resolução automática acontecer: um dia que estava marcado como
  * "ponto sem escala" passa a ter referência, a análise muda e a pendência antiga se encerra
  * sozinha. Sem isso, importar a escala corrigiria o cadastro e deixaria a fila mentindo. */
-tenantRouter.post('/escalas/importacao', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+tenantRouter.post('/escalas-dia/importacao', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
   const linhas = req.body?.linhas ?? [];
   const r = await escalas.confirmarImportacao(req.tenantId, linhas, req.usuario, {
     arquivo: req.body?.arquivo ?? '', formato: req.body?.formato ?? '',

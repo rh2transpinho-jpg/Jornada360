@@ -177,7 +177,7 @@ export async function analisarDiaCompleto(tenantId, dateKey, snapshot, opcoes = 
       divergencias.push({
         tipo: DIVERGENCIAS.HE_POTENCIAL,
         rotulo: ROTULO_DIVERGENCIA[DIVERGENCIAS.HE_POTENCIAL],
-        previsto: extraPrevisto === null ? 'sem extra previsto' : `${extraPrevisto} min previstos`,
+        previsto: extraPrevisto === null ? 'sem extra previsto' : `${extraPrevisto} min`,
         realizado: `${heMin} min`,
         diferencaMin: excedenteMin,
         detalhe: extraPrevisto === null
