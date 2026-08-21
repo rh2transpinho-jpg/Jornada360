@@ -30,6 +30,7 @@ const ControleHE = lazy(() => import('./pages/ControleHE'));
 const Escalas = lazy(() => import('./pages/Escalas'));
 const HorariosPadrao = lazy(() => import('./pages/HorariosPadrao'));
 const MinhaFila = lazy(() => import('./pages/MinhaFila'));
+const MinhaConta = lazy(() => import('./pages/MinhaConta'));
 const MotorHE = lazy(() => import('./pages/MotorHE'));
 const RankingReincidencia = lazy(() => import('./pages/RankingReincidencia'));
 const ScoreColaborador = lazy(() => import('./pages/ScoreColaborador'));
@@ -100,6 +101,7 @@ function RotasDaAplicacao() {
           <Route path="/escalas" element={<Escalas />} />
           <Route path="/horarios-padrao" element={<HorariosPadrao />} />
           <Route path="/fila" element={<MinhaFila />} />
+          <Route path="/minha-conta" element={<MinhaConta />} />
           {/* Fora do menu principal, e de propósito — mas as rotas continuam vivas. O Ranking é
               alcançado pelo Dashboard, pela Análise por Setor e pelos Relatórios; a tela antiga de
               Pendências continua acessível para quem tinha o link salvo. Tirar do menu não é

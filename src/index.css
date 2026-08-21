@@ -1278,9 +1278,31 @@ table.data-table {
   word-break: break-all;
 }
 
+/* O nome do usuário virou o caminho para "Minha conta", então é um botão — mas continua parecendo
+   texto. Dar a ele aparência de botão o faria competir com "Sair", que é o que precisa de
+   destaque no topo. */
 .topbar-usuario {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-family: inherit;
   font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.topbar-usuario:hover {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text);
+}
+.topbar-usuario svg { opacity: 0.8; flex-shrink: 0; }
+.topbar-usuario__nome {
   white-space: nowrap;
   max-width: 160px;
   overflow: hidden;
@@ -2103,4 +2125,69 @@ table.data-table {
   .campo-inline--largo .input { min-width: 0; width: 100%; }
   .campo-inline { flex: 1 1 140px; }
   .toolbar--filtros { align-items: stretch; }
+}
+
+/* ============================================================================
+   MINHA CONTA · AÇÕES DO CABEÇALHO
+   ========================================================================= */
+
+.conta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.conta-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 13px;
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--orange);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.conta-aviso svg { flex-shrink: 0; margin-top: 1px; color: var(--orange); }
+
+/* Botão com rótulo que RECUA quando falta espaço. O ícone permanece e o `title` continua
+   explicando — o texto é um reforço, não a única pista. */
+.btn-rotulado {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Sair não usa `.btn-rotulado`: o rótulo dele nunca some (ver Topbar.tsx). Recebe um contorno
+   próprio para se separar dos demais sem virar um botão vermelho de ação destrutiva — sair não é
+   perigoso, é só definitivo para a sessão. */
+.btn-sair {
+  border-color: var(--brand-600);
+  color: var(--brand-400);
+  font-weight: 700;
+}
+.btn-sair:hover {
+  background: var(--brand-100);
+  border-color: var(--brand-500);
+}
+
+@media (max-width: 1100px) {
+  /* Some o texto dos botões auxiliares, nunca o de Sair. */
+  .btn-rotulado__texto { display: none; }
+  .topbar-usuario__nome {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 720px) {
+  .topbar { padding: 12px 16px; }
+  .topbar-usuario__nome { display: none; }
+  .conta-grid { grid-template-columns: 1fr; }
 }

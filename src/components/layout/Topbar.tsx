@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { DoorOpen, LogOut, RefreshCw } from 'lucide-react';
+import { DoorOpen, LogOut, RefreshCw, UserRound } from 'lucide-react';
 import { useWorkspace } from '../../workspace/WorkspaceContext';
 import { useAuth } from '../../auth/AuthContext';
 
@@ -17,6 +17,11 @@ const TITLES: Record<string, string> = {
   '/auditoria': 'Auditoria',
   '/importar': 'Importar Dados',
   '/configuracoes': 'Configurações',
+  '/minha-conta': 'Minha conta',
+  '/fila': 'Minha Fila',
+  '/escalas': 'Escalas',
+  '/horarios-padrao': 'Horários Padrão',
+  '/horas-extras': 'Controle de Horas Extras',
 };
 
 export function Topbar() {
@@ -49,12 +54,13 @@ export function Topbar() {
             enquanto esta tela estava aberta. */}
         {modo === 'remoto' && (
           <button
-            className="btn btn-sm"
             onClick={() => void recarregar()}
             disabled={carregando}
+            className="btn btn-sm btn-rotulado"
             title="Buscar as alterações mais recentes do servidor"
           >
             <RefreshCw size={13} className={carregando ? 'girando' : undefined} />
+            <span className="btn-rotulado__texto">Atualizar</span>
           </button>
         )}
 
@@ -71,20 +77,37 @@ export function Topbar() {
           ))}
         </select>
 
+        {/* O nome vira o caminho para "Minha conta". Um usuário procura os próprios ajustes onde o
+            próprio nome está — não num item de menu lateral entre telas de operação. */}
         {modo === 'remoto' && usuario && (
-          <span className="topbar-usuario" title={`${usuario.email} — papel: ${papel}`}>
-            {usuario.nome}
-          </span>
+          <button
+            className="topbar-usuario"
+            onClick={() => navigate('/minha-conta')}
+            title={`${usuario.email} — papel: ${papel}. Abrir Minha conta`}
+          >
+            <UserRound size={13} />
+            <span className="topbar-usuario__nome">{usuario.nome}</span>
+          </button>
         )}
 
         {/* Volta ao portão de entrada. Não apaga nada — só desfaz a escolha de empresa. */}
-        <button className="btn btn-sm" onClick={sairDoWorkspace} title="Trocar de empresa">
+        <button className="btn btn-sm btn-rotulado" onClick={sairDoWorkspace} title="Trocar de empresa">
           <DoorOpen size={13} />
+          <span className="btn-rotulado__texto">Trocar empresa</span>
         </button>
 
+        {/* SAIR É O ÚNICO COM RÓTULO QUE NUNCA SOME.
+            Os outros botões do topo escondem o texto quando a tela aperta; este não. Um ícone de
+            porta sozinho não é óbvio para quem abriu o sistema pela primeira vez, e "como eu saio
+            daqui" é a pergunta que menos pode depender de passar o mouse para descobrir. */}
         {modo === 'remoto' && (
-          <button className="btn btn-sm" onClick={() => void encerrarSessao()} title="Sair da conta">
+          <button
+            className="btn btn-sm btn-sair"
+            onClick={() => void encerrarSessao()}
+            title="Encerrar a sessão e voltar para a tela de entrada"
+          >
             <LogOut size={13} />
+            <span>Sair</span>
           </button>
         )}
       </div>

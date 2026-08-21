@@ -62,6 +62,25 @@ export async function sair(): Promise<void> {
   }
 }
 
+/* Nome de EXIBIÇÃO. O e-mail não é alterável: ele é a identidade e o login da conta. */
+export function atualizarPerfil(nome: string): Promise<{ usuario: UsuarioAutenticado }> {
+  return api.patch<{ usuario: UsuarioAutenticado }>('/api/auth/perfil', { nome });
+}
+
+/* Troca de senha de quem está logado.
+ *
+ * A senha atual vai junto e é conferida no SERVIDOR, pelo mesmo caminho do login. A resposta traz
+ * uma sessão nova: o servidor derruba todas as sessões da conta ao trocar a senha (comportamento
+ * que já valia para a redefinição por e-mail) e devolve uma sessão fresca para este dispositivo.
+ * Quem trocou continua trabalhando; qualquer outro lugar logado cai. */
+export function alterarSenha(dados: {
+  senhaAtual: string;
+  novaSenha: string;
+  confirmacao: string;
+}): Promise<RespostaSessao> {
+  return api.post<RespostaSessao>('/api/auth/senha', dados);
+}
+
 /* Quem sou eu, segundo o servidor. Devolve null quando não há sessão — é como a aplicação
  * descobre, na abertura, se o cookie ainda vale. */
 export async function quemSouEu(): Promise<{ usuario: UsuarioAutenticado; tenants: TenantDoUsuario[] } | null> {

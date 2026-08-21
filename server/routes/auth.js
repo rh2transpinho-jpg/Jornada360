@@ -134,6 +134,74 @@ authRouter.get('/eu', autenticar, rota(async (req, res) => {
   });
 }));
 
+/* PATCH /api/auth/perfil — muda o nome de EXIBIÇÃO.
+ *
+ * O e-mail não passa por aqui. Ele é a identidade e o login da conta, e trocá-lo exigiria
+ * verificar o endereço novo antes — outra funcionalidade, com outro risco. O nome é só rótulo. */
+authRouter.patch('/perfil', autenticar, rota(async (req, res) => {
+  const nome = String(req.body?.nome ?? '').trim();
+  if (nome.length < 2) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe um nome com pelo menos 2 caracteres.' });
+  }
+  if (nome.length > 80) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'O nome pode ter no máximo 80 caracteres.' });
+  }
+  const usuario = await usuarios.atualizarNome(req.usuario.id, nome);
+  res.json({ usuario });
+}));
+
+/* POST /api/auth/senha — troca a senha de quem está logado.
+ *
+ * EXIGE A SENHA ATUAL, e a checagem é a MESMA de `entrar`: `usuarios.autenticar`, que usa
+ * `verificarSenha` (scrypt + timingSafeEqual). Não existe segunda implementação de senha neste
+ * arquivo — se houvesse, uma das duas ficaria para trás no dia em que os parâmetros mudassem.
+ *
+ * Pedir a senha atual não é burocracia: sem isso, um navegador deixado aberto vira uma troca de
+ * senha que expulsa a dona da própria conta.
+ *
+ * SOBRE AS SESSÕES: `trocarSenha` encerra TODAS as sessões da conta — é o comportamento que já
+ * valia para a redefinição por e-mail, e é o correto, porque trocar senha costuma ser reação a
+ * suspeita de acesso indevido. Logo em seguida abrimos uma sessão NOVA para este dispositivo:
+ * quem trocou continua trabalhando, e qualquer outro lugar logado cai. Deslogar também quem
+ * acabou de digitar a senha certa seria punir o acerto. */
+authRouter.post('/senha', autenticar, limiteLogin, rota(async (req, res) => {
+  const { senhaAtual, novaSenha, confirmacao } = req.body ?? {};
+
+  if (!senhaAtual || !novaSenha) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'Informe a senha atual e a nova senha.' });
+  }
+  if (novaSenha.length < SENHA_MINIMA) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: `A nova senha precisa ter pelo menos ${SENHA_MINIMA} caracteres.` });
+  }
+  /* A confirmação é conferida no servidor também. No cliente ela é conveniência; aqui é garantia
+   * de que um erro de digitação não vira uma senha que ninguém conhece. */
+  if (confirmacao !== undefined && confirmacao !== novaSenha) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'A confirmação não confere com a nova senha.' });
+  }
+  if (novaSenha === senhaAtual) {
+    return res.status(400).json({ erro: 'dados_invalidos', mensagem: 'A nova senha precisa ser diferente da atual.' });
+  }
+
+  const confere = await usuarios.autenticar(req.usuario.email, senhaAtual);
+  if (!confere) {
+    /* 400, NÃO 401 — e a diferença tem consequência prática.
+     *
+     * O cliente trata todo 401 como "a sessão caiu" e encerra a sessão em qualquer requisição
+     * (ver src/api/client.ts). Com 401 aqui, errar a própria senha atual DESLOGAVA a pessoa: ela
+     * digitava errado e era jogada para a tela de entrada, sem entender por quê. Aconteceu na
+     * validação em navegador.
+     *
+     * E 401 estaria errado de qualquer forma: a sessão é perfeitamente válida. O que falhou foi um
+     * campo do formulário. */
+    return res.status(400).json({ erro: 'senha_incorreta', mensagem: 'A senha atual não confere.' });
+  }
+
+  await usuarios.trocarSenha(req.usuario.id, novaSenha);
+
+  const { token, expiraEm } = await usuarios.criarSessao(req.usuario.id);
+  await responderSessao(req, res, { usuario: req.usuario, token, expiraEm });
+}));
+
 /* POST /api/auth/tenants — cria mais uma empresa para o usuário logado. Nasce vazia, com os
  * defaults neutros, e nunca copia nada de outra empresa (ver tenantRepository.criarTenant). */
 authRouter.post('/tenants', autenticar, rota(async (req, res) => {

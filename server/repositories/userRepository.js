@@ -76,6 +76,13 @@ export async function encerrarSessao(token) {
  *
  * As duas coisas juntas, de propósito: se a pessoa está trocando a senha porque alguém entrou na
  * conta dela, manter as sessões abertas anularia o esforço — o invasor continuaria dentro. */
+/* Nome de EXIBIÇÃO. O e-mail continua sendo a identidade e o login — ele não é alterável por aqui,
+ * de propósito: trocar e-mail é mudar quem a conta é, e envolve verificar o endereço novo. */
+export async function atualizarNome(userId, nome) {
+  await executar('UPDATE users SET nome = ? WHERE id = ?', [nome.trim(), userId]);
+  return buscarUsuario(userId);
+}
+
 export async function trocarSenha(userId, novaSenha) {
   await executar('UPDATE users SET password_hash = ? WHERE id = ?', [hashSenha(novaSenha), userId]);
   await executar('DELETE FROM sessions WHERE user_id = ?', [userId]);
