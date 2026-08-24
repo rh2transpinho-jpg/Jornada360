@@ -25,10 +25,12 @@ function comFiltros(caminho: string, filtros: Record<string, unknown>): string {
 
 /* ---------------------------------------------------------------- tipos */
 
+/* 'escala' não é mais produzido: a escala operacional deixou de ser referência trabalhista nesta
+   fase. O valor continua no tipo para que análises antigas gravadas com ele sigam legíveis. */
 export type TipoReferencia = 'escala' | 'padrao' | 'nao_encontrada';
 
 export const ROTULO_REFERENCIA: Record<TipoReferencia, string> = {
-  escala: 'Escala do dia',
+  escala: 'Escala do dia (modelo antigo)',
   padrao: 'Horário padrão',
   nao_encontrada: 'Referência não encontrada',
 };
@@ -120,6 +122,7 @@ export interface EventoHistorico {
 
 export interface Analise {
   id: string;
+  servicosNoDia: number;
   colaborador: string;
   colaboradorChave: string;
   data: string;
@@ -154,6 +157,13 @@ export interface Reincidencia {
 export interface Explicacao extends Analise {
   reincidencia: Reincidencia;
   porQue: string;
+  /* CONTEXTO — nunca referência. Os serviços do dia respondem "o que estava programado quando a
+     divergência aconteceu?", e não definem horário de jornada nenhum. */
+  contextoOperacional: {
+    total: number;
+    servicos: ServicoEscala[];
+    observacao: string;
+  };
 }
 
 export interface ItemFila {
@@ -428,4 +438,125 @@ export function dataBr(iso: string | null | undefined): string {
 
 export function hojeIso(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/* ============================================================================
+   ESCALA OPERACIONAL — serviços, não jornada
+   ========================================================================= */
+
+/* Um SERVIÇO: o que a pessoa vai operar. Os horários aqui são operacionais — dizem quando a rota
+   acontece, não quando a jornada começa ou termina. Ver server/repositories/escalaServicoRepository.js. */
+export interface ServicoEscala {
+  id: string;
+  data: string;
+  chaveServico: string;
+  seq: string;
+  empresa: string;
+  filial: string;
+  linha: string;
+  descricao: string;
+  horario: string;
+  horarioDescricao: string;
+  horarioCondicional: string;
+  rotulo: string;
+  rotuloTexto: string;
+  projecaoCarro: string;
+  terceirizado: boolean;
+  colaborador: string;
+  colaboradorChave: string;
+  origem: string;
+  importacaoId: string | null;
+  criadoEm: string;
+  atualizadoEm: string;
+  atualizadoPor: string;
+}
+
+export interface PanoramaDia {
+  data: string;
+  servicos: number;
+  motoristas: number;
+  empresas: number;
+  linhas: number;
+  terceirizados: number;
+  porEmpresa: { empresa: string; total: number }[];
+  porRotulo: { rotulo: string; rotuloTexto: string; total: number }[];
+}
+
+export interface ProgramacaoDoDia {
+  data: string;
+  colaborador: string;
+  total: number;
+  servicos: ServicoEscala[];
+  /* O horário padrão vigente, IDENTIFICADO COMO OUTRA FONTE. As duas coisas na mesma resposta e
+     com nomes diferentes é o que impede alguém de ler a escala como jornada. */
+  referenciaTrabalhista: {
+    tipo: TipoReferencia;
+    rotulo: string;
+    faixa: string;
+    entradaPrevista: string;
+    saidaPrevista: string;
+    cargaPrevistaMin: number | null;
+    extraMin: number | null;
+    situacao: string;
+  };
+}
+
+export interface PreviaServicos {
+  total: number;
+  novos: number;
+  trocados: number;
+  semMudanca: number;
+  comProblema: number;
+  duplicados: number;
+  datas: { data: string; servicos: number; motoristas: number }[];
+  motoristasNaoCadastrados: string[];
+  ausentesNoArquivo: { data: string; total: number; exemplos: ServicoEscala[] }[];
+  itens: {
+    linha: number; data: string; empresa: string; filial: string; linha_rota: string;
+    horario: string; descricao: string; rotulo: string; colaborador: string; terceirizado: boolean;
+    acao: 'novo' | 'troca_motorista' | 'sem_mudanca' | 'erro';
+    anterior: { colaborador: string } | null;
+    problemas: { tipo: string; mensagem: string; aviso?: boolean }[];
+  }[];
+  itensOmitidos: number;
+}
+
+export function listarServicos(tenantId: string, filtros: Record<string, unknown> = {}): Promise<ServicoEscala[]> {
+  return api.get<ServicoEscala[]>(comFiltros(`${base(tenantId)}/servicos`, filtros));
+}
+
+export function panoramaDoDia(tenantId: string, data: string): Promise<PanoramaDia> {
+  return api.get<PanoramaDia>(`${base(tenantId)}/servicos/panorama/${data}`);
+}
+
+export function programacaoDoDia(tenantId: string, data: string, colaborador: string): Promise<ProgramacaoDoDia> {
+  return api.get<ProgramacaoDoDia>(`${base(tenantId)}/servicos/${data}/${encodeURIComponent(colaborador)}`);
+}
+
+export function opcoesDeServico(tenantId: string): Promise<{
+  empresas: string[]; filiais: string[]; linhas: string[]; horarios: string[];
+  rotulos: { valor: string; rotulo: string }[];
+}> {
+  return api.get(`${base(tenantId)}/servicos/opcoes`);
+}
+
+export function datasComEscala(tenantId: string): Promise<{ data: string; servicos: number; motoristas: number }[]> {
+  return api.get(`${base(tenantId)}/servicos/datas`);
+}
+
+export function historicoDoServico(tenantId: string, id: string): Promise<EventoHistorico[]> {
+  return api.get<EventoHistorico[]>(`${base(tenantId)}/servicos/item/${encodeURIComponent(id)}/historico`);
+}
+
+export function previaDeServicos(tenantId: string, servicos: unknown[]): Promise<PreviaServicos> {
+  return api.post<PreviaServicos>(`${base(tenantId)}/servicos/importacao/previa`, { servicos });
+}
+
+export function importarServicos(
+  tenantId: string, servicos: unknown[], meta: { arquivo?: string; formato?: string } = {},
+): Promise<{
+  novos: number; trocados: number; semMudanca: number; recusados: number;
+  reprocesso: { dias: number; resolvidas: number };
+}> {
+  return api.post(`${base(tenantId)}/servicos/importacao`, { servicos, ...meta });
 }

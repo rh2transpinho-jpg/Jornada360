@@ -270,3 +270,41 @@ export function montarLinhas(
     };
   });
 }
+
+/* ---------------------------------------------------------------- leitura por abas */
+
+/* Devolve TODAS as abas como matriz crua, sem interpretar cabeçalho.
+ *
+ * A escala real vive numa aba entre dez, e a estrutura dela é uma matriz (serviços × datas) — não
+ * a tabela de cabeçalho único que `lerArquivo` assume. Quem interpreta é `matriz.ts`; aqui só
+ * abrimos o arquivo. */
+export async function lerAbas(arquivo: File): Promise<{ abas: string[]; porAba: Record<string, unknown[][]> }> {
+  const nome = arquivo.name.toLowerCase();
+
+  if (nome.endsWith('.csv') || nome.endsWith('.txt')) {
+    /* CSV não tem abas: vira uma aba só, com o nome do arquivo. */
+    const p = lerCsv(await arquivo.text());
+    return { abas: [arquivo.name], porAba: { [arquivo.name]: [p.cabecalho, ...p.linhas] } };
+  }
+
+  if (!nome.endsWith('.xlsx') && !nome.endsWith('.xls')) {
+    throw new Error('Formato não reconhecido. Use .xlsx ou .csv.');
+  }
+
+  await carregarXlsx();
+  const XLSX = window.XLSX!;
+  const wb = XLSX.read(await arquivo.arrayBuffer(), { type: 'array', cellDates: false }) as unknown as {
+    SheetNames: string[]; Sheets: Record<string, unknown>;
+  };
+
+  const porAba: Record<string, unknown[][]> = {};
+  for (const aba of wb.SheetNames) {
+    /* `raw: false` faz a biblioteca aplicar a formatação da célula: uma hora vira "06:00" em vez
+     * do número fracionário que o Excel guarda por baixo. */
+    porAba[aba] = XLSX.utils.sheet_to_json(wb.Sheets[aba], {
+      header: 1, raw: false, defval: '',
+    }) as unknown as unknown[][];
+  }
+
+  return { abas: wb.SheetNames, porAba };
+}

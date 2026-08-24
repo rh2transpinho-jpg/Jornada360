@@ -2191,3 +2191,120 @@ table.data-table {
   .topbar-usuario__nome { display: none; }
   .conta-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================================
+   ESCALA OPERACIONAL
+   ========================================================================= */
+
+/* A programação do dia como linha do tempo, não como tabela. Uma pessoa com 14 serviços precisa
+   ser lida de cima para baixo, e o horário à esquerda é a âncora da leitura. */
+.programacao {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.programacao__item {
+  display: flex;
+  gap: 14px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--border);
+  background: var(--surface-muted);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.programacao__item:hover { border-left-color: var(--brand-500); }
+
+.programacao__hora {
+  flex-shrink: 0;
+  width: 52px;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--brand-400);
+  font-variant-numeric: tabular-nums;
+}
+
+.programacao__corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.programacao__topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.programacao__linha {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.programacao__desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.programacao--compacta .programacao__item { padding: 7px 10px; }
+.programacao--compacta .programacao__desc { font-size: 12px; }
+
+.badge-gray {
+  background: var(--gray-bg);
+  color: var(--gray);
+}
+
+/* ---------- escolha de abas e datas na importação ---------- */
+
+.lista-abas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.lista-abas li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.datas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.data-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.data-chip--marcada { border-color: var(--brand-500); background: var(--brand-100); }
+/* Fim de semana fica visivelmente fora — desabilitar sem explicar pareceria defeito. */
+.data-chip--fds { opacity: 0.45; cursor: not-allowed; }
+.data-chip span:last-child { margin-left: auto; font-size: 10.5px; }
+
+@media (max-width: 700px) {
+  .programacao__item { flex-direction: column; gap: 4px; }
+  .programacao__hora { width: auto; }
+  .datas-grid { grid-template-columns: 1fr; }
+}

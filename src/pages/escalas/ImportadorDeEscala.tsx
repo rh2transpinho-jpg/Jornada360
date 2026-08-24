@@ -1,32 +1,35 @@
-/* Importação de escala em quatro passos: arquivo → mapeamento → prévia → confirmação.
+/* Importação da escala real: arquivo → aba → datas → prévia → confirmação.
  *
- * POR QUE EXISTE UM PASSO DE PRÉVIA
- * ---------------------------------
- * A escala de um dia já analisado é a base de horas extras que já foram justificadas. Trocá-la em
- * silêncio muda o veredito de casos fechados sem ninguém ver. A prévia mostra, linha a linha, o
- * que existe hoje e o que passaria a existir — e nada é gravado até alguém confirmar.
+ * O SISTEMA FAZ O TRABALHO DE INTERPRETAÇÃO
+ * -----------------------------------------
+ * A planilha da operação é uma matriz: 1.106 serviços em linhas, 69 datas em colunas, e o
+ * motorista alocado dentro de cada célula. Ninguém deveria ter que transformar isso em outro
+ * formato toda semana — a tela reconhece a estrutura, mostra o que entendeu e pede confirmação.
  *
- * A prévia inteira é calculada pelo SERVIDOR: é ele quem sabe o que já está no banco. Esta tela
- * só monta as linhas a partir da planilha e exibe o que voltou. */
+ * "X" e célula vazia são PULADOS: a rota existe na estrutura, mas não foi programada naquela data.
+ * Não vira serviço, não vira ausência, não vira falta de ninguém.
+ *
+ * Fim de semana e férias ficam fora, por decisão de escopo — e a tela diz isso em vez de ignorar
+ * em silêncio. */
 import { useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, FileSpreadsheet, Upload, X,
 } from 'lucide-react';
 import { useGravacao } from '../../data/useRecurso';
 import { FeedbackGravacao } from '../../components/ui/EstadosAsync';
-import { dataBr, importarEscala, previaDeEscala, type PreviaImportacao } from '../../api/jornadaService';
+import { dataBr, importarServicos, previaDeServicos, type PreviaServicos } from '../../api/jornadaService';
 import {
-  CAMPOS, lerArquivo, montarLinhas, sugerirMapeamento,
-  type CampoEscala, type Planilha,
-} from './planilha';
+  abaEhSuportada, desdobrar, ehDiaUtil, lerTodasAsAbas, motivoDeAbaIgnorada, reconhecerMatriz,
+  type MatrizDeEscala, type ServicoImportado,
+} from './matriz';
 
-type Passo = 'arquivo' | 'mapear' | 'previa' | 'concluido';
+type Passo = 'arquivo' | 'aba' | 'datas' | 'previa' | 'concluido';
 
 const ROTULO_ACAO: Record<string, string> = {
-  novo: 'Nova',
-  substitui: 'Substitui a atual',
+  novo: 'Novo',
+  troca_motorista: 'Troca de motorista',
   sem_mudanca: 'Sem mudança',
-  erro: 'Não será importada',
+  erro: 'Não será importado',
 };
 
 export function ImportadorDeEscala({
@@ -38,55 +41,68 @@ export function ImportadorDeEscala({
 }) {
   const [passo, setPasso] = useState<Passo>('arquivo');
   const [arquivo, setArquivo] = useState<File | null>(null);
-  const [planilha, setPlanilha] = useState<Planilha | null>(null);
-  const [mapa, setMapa] = useState<Partial<Record<CampoEscala, number>>>({});
-  const [carga, setCarga] = useState('480');
-  const [previa, setPrevia] = useState<PreviaImportacao | null>(null);
+  const [conteudo, setConteudo] = useState<{ abas: string[]; porAba: Record<string, unknown[][]> } | null>(null);
+  const [aba, setAba] = useState('');
+  const [matriz, setMatriz] = useState<MatrizDeEscala | null>(null);
+  const [datasEscolhidas, setDatasEscolhidas] = useState<string[]>([]);
+  const [servicos, setServicos] = useState<ServicoImportado[]>([]);
+  const [naoProgramados, setNaoProgramados] = useState(0);
+  const [previa, setPrevia] = useState<PreviaServicos | null>(null);
   const [erroLeitura, setErroLeitura] = useState('');
   const [resultado, setResultado] = useState<{
-    criadas: number; atualizadas: number; ignoradas: number;
+    novos: number; trocados: number; semMudanca: number; recusados: number;
     reprocesso: { dias: number; resolvidas: number };
   } | null>(null);
 
   const gravacao = useGravacao();
 
-  async function escolher(f: File) {
+  async function escolherArquivo(f: File) {
     setErroLeitura('');
     setArquivo(f);
     try {
-      const p = await lerArquivo(f);
-      if (!p.cabecalho.length) {
-        setErroLeitura('A planilha parece vazia.');
-        return;
+      const c = await lerTodasAsAbas(f);
+      setConteudo(c);
+      const suportadas = c.abas.filter(abaEhSuportada);
+      if (suportadas.length === 1) {
+        selecionarAba(suportadas[0], c);
+      } else {
+        setPasso('aba');
       }
-      setPlanilha(p);
-      setMapa(sugerirMapeamento(p.cabecalho));
-      setPasso('mapear');
     } catch (e) {
       setErroLeitura((e as Error).message);
     }
   }
 
+  function selecionarAba(nome: string, c = conteudo) {
+    if (!c) return;
+    const m = reconhecerMatriz(c.porAba[nome] ?? [], nome, c.abas);
+    setAba(nome);
+    setMatriz(m);
+    /* Só dias úteis vêm marcados: sábado e domingo estão fora desta integração. */
+    setDatasEscolhidas(m.datas.filter((d) => ehDiaUtil(d.data) && d.preenchidas > 0).map((d) => d.data));
+    setPasso('datas');
+  }
+
   async function verPrevia() {
-    if (!planilha) return;
-    const linhas = montarLinhas(planilha, mapa, carga === '' ? null : Number(carga));
-    const r = await gravacao.executar(() => previaDeEscala(tenantId, linhas));
-    if (r) { setPrevia(r as PreviaImportacao); setPasso('previa'); }
+    if (!matriz || !conteudo) return;
+    const { servicos: lista, naoProgramados: np } = desdobrar(
+      conteudo.porAba[aba] ?? [], matriz, datasEscolhidas,
+    );
+    setServicos(lista);
+    setNaoProgramados(np);
+
+    const r = await gravacao.executar(() => previaDeServicos(tenantId, lista));
+    if (r) { setPrevia(r as PreviaServicos); setPasso('previa'); }
   }
 
   async function confirmar() {
-    if (!planilha) return;
-    const linhas = montarLinhas(planilha, mapa, carga === '' ? null : Number(carga));
-    const r = await gravacao.executar(() => importarEscala(tenantId, linhas, {
-      arquivo: arquivo?.name ?? '', formato: planilha.formato,
+    const r = await gravacao.executar(() => importarServicos(tenantId, servicos, {
+      arquivo: arquivo?.name ?? '', formato: 'xlsx',
     }));
-    if (r) {
-      setResultado(r as typeof resultado);
-      setPasso('concluido');
-    }
+    if (r) { setResultado(r as typeof resultado); setPasso('concluido'); }
   }
 
-  const faltaObrigatorio = CAMPOS.filter((c) => c.obrigatorio && mapa[c.id] === undefined);
+  const utilEscolhidas = matriz?.datas.filter((d) => datasEscolhidas.includes(d.data)) ?? [];
 
   return (
     <div className="he-painel-fundo" onClick={aoFechar}>
@@ -98,14 +114,18 @@ export function ImportadorDeEscala({
       >
         <header className="he-painel__topo">
           <button className="btn btn-sm" onClick={aoFechar}><X size={14} /> Fechar</button>
-          <span className="badge badge-blue">Importar escala</span>
+          <span className="badge badge-blue">Importar escala operacional</span>
         </header>
 
         <div className="he-painel__corpo">
           <ol className="passos">
-            {(['arquivo', 'mapear', 'previa', 'concluido'] as Passo[]).map((p, i) => (
-              <li key={p} className={`passo${passo === p ? ' passo--ativo' : ''}${['arquivo', 'mapear', 'previa', 'concluido'].indexOf(passo) > i ? ' passo--feito' : ''}`}>
-                {['Arquivo', 'Mapear colunas', 'Prévia', 'Concluído'][i]}
+            {(['arquivo', 'aba', 'datas', 'previa', 'concluido'] as Passo[]).map((p, i) => (
+              <li
+                key={p}
+                className={`passo${passo === p ? ' passo--ativo' : ''}${
+                  ['arquivo', 'aba', 'datas', 'previa', 'concluido'].indexOf(passo) > i ? ' passo--feito' : ''}`}
+              >
+                {['Arquivo', 'Aba', 'Datas', 'Prévia', 'Concluído'][i]}
               </li>
             ))}
           </ol>
@@ -113,83 +133,104 @@ export function ImportadorDeEscala({
           {passo === 'arquivo' && (
             <section className="he-secao">
               <p className="text-muted" style={{ fontSize: 13.5 }}>
-                Selecione a planilha de escala. Aceita <strong>.xlsx</strong> e <strong>.csv</strong>.
-                A primeira linha precisa conter os nomes das colunas.
+                Selecione a planilha de escala como ela é — o sistema reconhece a estrutura de
+                serviços por data. Aceita <strong>.xlsx</strong> e <strong>.csv</strong>.
               </p>
               <label className="drop-arquivo">
                 <FileSpreadsheet size={26} />
                 <span>{arquivo ? arquivo.name : 'Escolher arquivo'}</span>
                 <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv,.txt"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void escolher(f); }}
+                  type="file" accept=".xlsx,.xls,.csv,.txt"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void escolherArquivo(f); }}
                 />
               </label>
-              {erroLeitura && (
-                <p className="aviso-erro"><AlertTriangle size={14} /> {erroLeitura}</p>
-              )}
+              {erroLeitura && <p className="aviso-erro"><AlertTriangle size={14} /> {erroLeitura}</p>}
             </section>
           )}
 
-          {passo === 'mapear' && planilha && (
+          {passo === 'aba' && conteudo && (
             <section className="he-secao">
-              <h3 className="he-secao__titulo">Mapear colunas</h3>
-              <p className="text-muted" style={{ fontSize: 13 }}>
-                O sistema tentou reconhecer as colunas pelo nome. Confira antes de continuar —
-                uma coluna trocada aqui contamina a análise de todo o período.
-              </p>
+              <h3 className="he-secao__titulo">Qual aba tem a escala diária?</h3>
+              <ul className="lista-abas">
+                {conteudo.abas.map((nome) => {
+                  const ok = abaEhSuportada(nome);
+                  return (
+                    <li key={nome}>
+                      <button
+                        className={`btn${ok ? ' btn-primary' : ''}`}
+                        disabled={!ok}
+                        onClick={() => selecionarAba(nome)}
+                      >
+                        {nome}
+                      </button>
+                      {!ok && <span className="text-faint"> — {motivoDeAbaIgnorada(nome)}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
-              <div className="mapa-grid">
-                {CAMPOS.map((campo) => (
-                  <label key={campo.id} className="campo-inline">
-                    <span>
-                      {campo.rotulo}
-                      {campo.obrigatorio && <strong style={{ color: 'var(--danger)' }}> *</strong>}
-                    </span>
-                    <select
-                      className="input"
-                      value={mapa[campo.id] ?? ''}
-                      onChange={(e) => setMapa((m) => ({
-                        ...m,
-                        [campo.id]: e.target.value === '' ? undefined : Number(e.target.value),
-                      }))}
-                    >
-                      <option value="">— não usar —</option>
-                      {planilha.cabecalho.map((c, i) => (
-                        <option key={i} value={i}>{c || `(coluna ${i + 1})`}</option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-              </div>
+          {passo === 'datas' && matriz && (
+            <section className="he-secao">
+              <h3 className="he-secao__titulo">O que o sistema entendeu</h3>
+              <ul className="lista-resultado">
+                <li>Aba: <strong>{matriz.aba}</strong></li>
+                <li>Cabeçalho na linha <strong>{matriz.linhaCabecalho + 1}</strong></li>
+                <li><strong>{matriz.totalServicos}</strong> serviços (linhas)</li>
+                <li><strong>{matriz.datas.length}</strong> colunas de data</li>
+                <li>
+                  Colunas reconhecidas:{' '}
+                  {Object.keys(matriz.colunas).join(', ') || <span className="text-faint">nenhuma</span>}
+                </li>
+              </ul>
 
-              <label className="campo-inline" style={{ marginTop: 12 }}>
-                <span>Carga prevista do dia (minutos)</span>
-                <input
-                  type="number" className="input" value={carga}
-                  onChange={(e) => setCarga(e.target.value)}
-                />
-              </label>
-              <p className="text-faint" style={{ fontSize: 11.5, marginTop: 4 }}>
-                Usada para calcular quanto de extra já estava previsto na escala. 480 = 8 horas.
-              </p>
-
-              {faltaObrigatorio.length > 0 && (
+              {(!matriz.colunas.descricao || !matriz.colunas.horario) && (
                 <p className="aviso-erro">
-                  <AlertTriangle size={14} /> Falta mapear: {faltaObrigatorio.map((c) => c.rotulo).join(', ')}.
+                  <AlertTriangle size={14} /> Não encontrei as colunas de descrição e horário. Confira se a
+                  aba escolhida é mesmo a escala diária.
                 </p>
               )}
+
+              <h3 className="he-secao__titulo" style={{ marginTop: 16 }}>Datas a importar</h3>
+              <p className="text-muted" style={{ fontSize: 12.5, marginTop: 0 }}>
+                Só dias úteis vêm marcados. Sábado e domingo têm operação própria e ficam fora
+                desta integração.
+              </p>
+
+              <div className="datas-grid">
+                {matriz.datas.map((d) => {
+                  const util = ehDiaUtil(d.data);
+                  const marcada = datasEscolhidas.includes(d.data);
+                  return (
+                    <label key={d.data} className={`data-chip${marcada ? ' data-chip--marcada' : ''}${util ? '' : ' data-chip--fds'}`}>
+                      <input
+                        type="checkbox"
+                        checked={marcada}
+                        disabled={!util}
+                        onChange={(e) => setDatasEscolhidas((atual) => (
+                          e.target.checked ? [...atual, d.data] : atual.filter((x) => x !== d.data)
+                        ))}
+                      />
+                      <span>{d.rotuloBr}</span>
+                      <span className="text-faint">{d.preenchidas} alocações</span>
+                    </label>
+                  );
+                })}
+              </div>
 
               <FeedbackGravacao estado={gravacao.estado} erro={gravacao.erro} />
 
               <div className="passo-acoes">
-                <button className="btn" onClick={() => setPasso('arquivo')}><ArrowLeft size={14} /> Voltar</button>
+                <button className="btn" onClick={() => setPasso(conteudo && conteudo.abas.filter(abaEhSuportada).length > 1 ? 'aba' : 'arquivo')}>
+                  <ArrowLeft size={14} /> Voltar
+                </button>
                 <button
                   className="btn btn-primary"
-                  disabled={faltaObrigatorio.length > 0 || gravacao.estado === 'salvando'}
+                  disabled={!datasEscolhidas.length || gravacao.estado === 'salvando'}
                   onClick={() => void verPrevia()}
                 >
-                  Ver prévia <ArrowRight size={14} />
+                  Ver prévia de {utilEscolhidas.length} data(s) <ArrowRight size={14} />
                 </button>
               </div>
             </section>
@@ -200,64 +241,82 @@ export function ImportadorDeEscala({
               <h3 className="he-secao__titulo">Prévia — nada foi gravado ainda</h3>
 
               <div className="previa-resumo">
-                <span className="badge badge-green">{previa.novos} nova(s)</span>
-                <span className="badge badge-orange">{previa.substituicoes} substituição(ões)</span>
+                <span className="badge badge-green">{previa.novos} novo(s)</span>
+                <span className="badge badge-orange">{previa.trocados} troca(s) de motorista</span>
                 <span className="badge badge-blue">{previa.semMudanca} sem mudança</span>
                 {previa.comProblema > 0 && <span className="badge badge-red">{previa.comProblema} com problema</span>}
               </div>
 
-              {previa.substituicoes > 0 && (
-                <p className="he-aviso-recalculo">
+              <ul className="lista-resultado" style={{ marginBottom: 14 }}>
+                <li><strong>{previa.datas.length}</strong> data(s): {previa.datas.map((d) => dataBr(d.data)).slice(0, 6).join(', ')}
+                  {previa.datas.length > 6 && ` e mais ${previa.datas.length - 6}`}</li>
+                <li><strong>{previa.total}</strong> alocações no arquivo</li>
+                <li><strong>{naoProgramados}</strong> células com “X” ou vazias — rota sem programação nessas datas,
+                  ignoradas (não geram ausência)</li>
+              </ul>
+
+              {previa.motoristasNaoCadastrados.length > 0 && (
+                <>
+                  <p className="conta-aviso">
+                    <AlertTriangle size={15} />
+                    <span>
+                      <strong>{previa.motoristasNaoCadastrados.length} nome(s) não reconhecido(s).</strong> Os
+                      serviços entram assim mesmo, mas confira a grafia — o sistema não associa por
+                      aproximação, de propósito.
+                    </span>
+                  </p>
+                  <ul className="previa-problemas" style={{ color: 'var(--text-muted)' }}>
+                    {previa.motoristasNaoCadastrados.slice(0, 12).map((n) => <li key={n}>{n}</li>)}
+                    {previa.motoristasNaoCadastrados.length > 12 && (
+                      <li>e mais {previa.motoristasNaoCadastrados.length - 12}…</li>
+                    )}
+                  </ul>
+                </>
+              )}
+
+              {previa.ausentesNoArquivo.length > 0 && (
+                <p className="conta-aviso">
                   <AlertTriangle size={15} />
                   <span>
-                    <strong>{previa.substituicoes} escala(s) já existem para essas datas.</strong> Confira
-                    o antes e o depois abaixo: alterar a escala de um dia já analisado muda a
-                    referência usada para calcular a hora extra daquele dia.
+                    Existem serviços já gravados nessas datas que <strong>não vieram</strong> neste
+                    arquivo ({previa.ausentesNoArquivo.reduce((s, a) => s + a.total, 0)} no total). Eles
+                    <strong> não serão removidos</strong> — um arquivo parcial apagaria o resto do dia.
                   </span>
                 </p>
               )}
 
-              <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+              <div className="table-wrap" style={{ maxHeight: 340, overflowY: 'auto' }}>
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>COLABORADOR</th>
-                      <th>DATA</th>
-                      <th>SITUAÇÃO</th>
-                      <th>HORÁRIO</th>
-                      <th>AÇÃO</th>
+                      <th>DATA</th><th>HORÁRIO</th><th>EMPRESA</th><th>LINHA</th>
+                      <th>MOTORISTA</th><th>AÇÃO</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {previa.itens.map((item) => (
-                      <tr key={item.linha} className={item.acao === 'erro' ? 'he-linha--pendente' : undefined}>
-                        <td className="mono text-faint">{item.linha}</td>
+                    {previa.itens.map((it) => (
+                      <tr key={`${it.linha}-${it.data}`} className={it.acao === 'erro' ? 'he-linha--pendente' : undefined}>
+                        <td className="mono">{dataBr(it.data)}</td>
+                        <td className="mono">{it.horario || '—'}</td>
+                        <td>{it.empresa}</td>
+                        <td className="mono">{it.linha_rota || '—'}</td>
                         <td>
-                          {item.colaborador || <span className="text-faint">— vazio —</span>}
-                          {!item.colaboradorConhecido && item.colaborador && (
-                            <div className="text-faint" style={{ fontSize: 11 }}>não consta no cadastro</div>
-                          )}
-                        </td>
-                        <td className="mono">{item.data ? dataBr(item.data) : '—'}</td>
-                        <td>{item.rotuloSituacao}</td>
-                        <td className="mono">
-                          {item.faixa || '—'}
-                          {item.anterior && item.anterior.faixa !== item.faixa && (
-                            <div className="he-antes">antes {item.anterior.faixa}</div>
+                          {it.colaborador || <span className="text-faint">—</span>}
+                          {it.anterior && it.anterior.colaborador !== it.colaborador && (
+                            <div className="he-antes">antes {it.anterior.colaborador}</div>
                           )}
                         </td>
                         <td>
                           <span className={`badge ${
-                            item.acao === 'erro' ? 'badge-red'
-                              : item.acao === 'substitui' ? 'badge-orange'
-                                : item.acao === 'novo' ? 'badge-green' : 'badge-blue'
-                          }`}>
-                            {ROTULO_ACAO[item.acao]}
+                            it.acao === 'erro' ? 'badge-red'
+                              : it.acao === 'troca_motorista' ? 'badge-orange'
+                                : it.acao === 'novo' ? 'badge-green' : 'badge-blue'}`}
+                          >
+                            {ROTULO_ACAO[it.acao]}
                           </span>
-                          {item.problemas.length > 0 && (
+                          {it.problemas.length > 0 && (
                             <ul className="previa-problemas">
-                              {item.problemas.map((p, i) => (
+                              {it.problemas.map((p, i) => (
                                 <li key={i} className={p.aviso ? 'text-faint' : undefined}>{p.mensagem}</li>
                               ))}
                             </ul>
@@ -268,17 +327,22 @@ export function ImportadorDeEscala({
                   </tbody>
                 </table>
               </div>
+              {previa.itensOmitidos > 0 && (
+                <p className="text-faint" style={{ fontSize: 11.5, marginTop: 6 }}>
+                  Mostrando as primeiras {previa.itens.length} de {previa.total} alocações.
+                </p>
+              )}
 
               <FeedbackGravacao estado={gravacao.estado} erro={gravacao.erro} />
 
               <div className="passo-acoes">
-                <button className="btn" onClick={() => setPasso('mapear')}><ArrowLeft size={14} /> Voltar</button>
+                <button className="btn" onClick={() => setPasso('datas')}><ArrowLeft size={14} /> Voltar</button>
                 <button
                   className="btn btn-primary"
-                  disabled={gravacao.estado === 'salvando' || previa.novos + previa.substituicoes === 0}
+                  disabled={gravacao.estado === 'salvando' || previa.novos + previa.trocados === 0}
                   onClick={() => void confirmar()}
                 >
-                  <Upload size={15} /> Confirmar importação de {previa.novos + previa.substituicoes} linha(s)
+                  <Upload size={15} /> Confirmar {previa.novos + previa.trocados} alteração(ões)
                 </button>
               </div>
             </section>
@@ -288,27 +352,23 @@ export function ImportadorDeEscala({
             <section className="he-secao">
               <h3 className="he-secao__titulo"><Check size={14} /> Importação concluída</h3>
               <ul className="lista-resultado">
-                <li><strong>{resultado.criadas}</strong> escala(s) criada(s)</li>
-                <li><strong>{resultado.atualizadas}</strong> atualizada(s)</li>
-                <li><strong>{resultado.ignoradas}</strong> ignorada(s)</li>
+                <li><strong>{resultado.novos}</strong> serviço(s) criado(s)</li>
+                <li><strong>{resultado.trocados}</strong> troca(s) de motorista</li>
+                <li><strong>{resultado.semMudanca}</strong> sem mudança</li>
+                {resultado.recusados > 0 && <li><strong>{resultado.recusados}</strong> recusado(s)</li>}
               </ul>
 
-              {/* A parte que o usuário não pediu mas é a mais útil: a importação reprocessou os
-                  dias afetados, e pendências que existiam por falta de escala se encerraram. */}
               {resultado.reprocesso.dias > 0 && (
                 <p className="he-aviso-recalculo">
                   <Check size={15} />
                   <span>
-                    <strong>{resultado.reprocesso.dias} dia(s) foram reanalisados</strong> com a nova escala
-                    {resultado.reprocesso.resolvidas > 0 && (
-                      <> e <strong>{resultado.reprocesso.resolvidas} pendência(s) se resolveram sozinhas</strong>,
-                        porque a causa delas deixou de existir</>
-                    )}.
+                    <strong>{resultado.reprocesso.dias} dia(s) reanalisados</strong> — a escala entra como
+                    contexto das ocorrências. A referência de jornada continua sendo o horário padrão.
                   </span>
                 </p>
               )}
 
-              <button className="btn btn-primary" onClick={aoConcluir}>Ver escalas</button>
+              <button className="btn btn-primary" onClick={aoConcluir}>Ver escala</button>
             </section>
           )}
         </div>

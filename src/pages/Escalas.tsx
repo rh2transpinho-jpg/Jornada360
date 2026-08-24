@@ -1,39 +1,46 @@
-/* Escalas — o que estava programado, dia a dia.
+/* Escalas — a programação operacional do dia.
  *
- * POR QUE A VISÃO É DIÁRIA, E NÃO UMA TABELA GIGANTE
- * --------------------------------------------------
- * Escala é uma pergunta operacional de hoje: "quem trabalha, quem folga, quem não tem escala, e
- * onde a escala não bate com o ponto". Uma lista de todos os dias de todos os colaboradores
- * responde essas quatro perguntas mal. Por isso a tela abre num dia, com a cobertura em destaque,
- * e a pesquisa por colaborador é o segundo caminho — não o primeiro.
+ * O QUE ESTA TELA RESPONDE
+ * ------------------------
+ *   "Qual é a escala de hoje?"
+ *   "O que o Ademar vai fazer hoje?"
+ *   "Quais serviços a VIEMAR tem hoje?"
+ *   "Quem está na Linha 103?"
+ *   "Quais rotas existem às 07:10?"
  *
- * NADA É CALCULADO AQUI. Cobertura, faixa de horário, carga prevista e extra vêm do servidor. */
+ * O QUE ELA NÃO FAZ, E É O PONTO
+ * ------------------------------
+ * Não apresenta horário de serviço como horário de jornada. "ENTRADA 07:10" é a viagem que leva
+ * os funcionários do cliente para dentro às 07:10 — o motorista começa antes, e a planilha não
+ * diz quando. Quando o horário padrão aparece aqui, aparece com nome próprio e em bloco separado.
+ *
+ * Também não é o Excel na tela: a planilha é uma matriz de 1.106 serviços × 69 datas, e a tela
+ * mostra um dia, ou uma pessoa num dia. */
 import { useCallback, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CalendarDays, Check, ClipboardList, Coffee, Pencil,
-  Plus, RefreshCw, Search, Upload, X,
+  AlertTriangle, Building2, CalendarDays, Clock, Route, Search, Upload, User,
 } from 'lucide-react';
 import { useSessao } from '../workspace/WorkspaceContext';
-import { useRecurso, useGravacao } from '../data/useRecurso';
-import { Carregando, ErroAoCarregar, FeedbackGravacao } from '../components/ui/EstadosAsync';
+import { useRecurso } from '../data/useRecurso';
+import { Carregando, ErroAoCarregar } from '../components/ui/EstadosAsync';
 import { initials } from '../utils/text';
 import {
-  coberturaDoDia, dataBr, hojeIso, listarEscalas, minutosParaHoras, opcoesDeEscala,
-  ROTULO_SITUACAO_ESCALA, salvarEscala,
-  type Escala, type SituacaoEscala,
+  dataBr, datasComEscala, hojeIso, listarServicos, minutosParaHoras, opcoesDeServico,
+  panoramaDoDia, programacaoDoDia,
+  type PanoramaDia, type ServicoEscala,
 } from '../api/jornadaService';
 import { ImportadorDeEscala } from './escalas/ImportadorDeEscala';
 
-const CLASSE_SITUACAO: Record<SituacaoEscala, string> = {
-  trabalha: 'badge-green',
-  folga: 'badge-blue',
+const CLASSE_ROTULO: Record<string, string> = {
+  entrada: 'badge-green',
+  saida: 'badge-blue',
+  destino: 'badge-orange',
+  translado: 'badge-orange',
   extra: 'badge-orange',
-  alteracao_horario: 'badge-orange',
-  ausencia_programada: 'badge-blue',
-  sem_definicao: 'badge-red',
+  outro: 'badge-gray',
 };
 
-type Aba = 'dia' | 'pesquisa';
+type Aba = 'dia' | 'motorista';
 
 export default function Escalas() {
   const { workspaceIdAtivo, pode, modo } = useSessao();
@@ -43,45 +50,52 @@ export default function Escalas() {
   const [aba, setAba] = useState<Aba>('dia');
   const [data, setData] = useState(hojeIso());
   const [busca, setBusca] = useState('');
-  const [situacao, setSituacao] = useState('');
-  const [setor, setSetor] = useState('');
-  const [unidade, setUnidade] = useState('');
-  const [turno, setTurno] = useState('');
-  const [editando, setEditando] = useState<Partial<Escala> | null>(null);
+  const [empresa, setEmpresa] = useState('');
+  const [filial, setFilial] = useState('');
+  const [linha, setLinha] = useState('');
+  const [horario, setHorario] = useState('');
+  const [motorista, setMotorista] = useState('');
   const [importando, setImportando] = useState(false);
 
-  const filtros = useMemo(() => (aba === 'dia'
-    ? { data, situacao, setor, unidade, turno }
-    : { busca: busca.trim(), situacao, setor, unidade, turno }
-  ), [aba, data, busca, situacao, setor, unidade, turno]);
-
+  const filtros = useMemo(
+    () => ({ data, busca: busca.trim(), empresa, filial, linha, horario }),
+    [data, busca, empresa, filial, linha, horario],
+  );
   const chave = JSON.stringify(filtros);
 
-  const lista = useRecurso<Escala[]>(
-    () => listarEscalas(tenantId, filtros),
+  const lista = useRecurso<ServicoEscala[]>(
+    () => listarServicos(tenantId, filtros),
     [tenantId, chave],
-    { habilitado: remoto },
+    { habilitado: remoto && aba === 'dia' },
   );
 
-  const cobertura = useRecurso(
-    () => coberturaDoDia(tenantId, data),
+  const panorama = useRecurso(
+    () => panoramaDoDia(tenantId, data),
     [tenantId, data],
     { habilitado: remoto && aba === 'dia' },
   );
 
-  const opcoes = useRecurso(() => opcoesDeEscala(tenantId), [tenantId], { habilitado: remoto });
+  const opcoes = useRecurso(() => opcoesDeServico(tenantId), [tenantId], { habilitado: remoto });
+  const datas = useRecurso(() => datasComEscala(tenantId), [tenantId], { habilitado: remoto });
+
+  const doMotorista = useRecurso(
+    () => programacaoDoDia(tenantId, data, motorista),
+    [tenantId, data, motorista],
+    { habilitado: remoto && aba === 'motorista' && !!motorista.trim() },
+  );
 
   const recarregar = useCallback(() => {
     void lista.recarregar();
-    void cobertura.recarregar();
-  }, [lista, cobertura]);
+    void panorama.recarregar();
+    void datas.recarregar();
+  }, [lista, panorama, datas]);
 
   if (!remoto) {
     return (
       <>
         <header className="page-header">
           <h1 className="page-title">Escalas</h1>
-          <p className="page-subtitle">O que estava programado para cada colaborador, dia a dia</p>
+          <p className="page-subtitle">A programação operacional de cada dia</p>
         </header>
         <div className="card card-pad">
           <p className="text-muted" style={{ margin: 0 }}>
@@ -92,222 +106,88 @@ export default function Escalas() {
     );
   }
 
-  const escalas = lista.dados ?? [];
-  const cob = cobertura.dados;
+  const servicos = lista.dados ?? [];
+  const p = panorama.dados;
+  const comEscala = datas.dados ?? [];
 
   return (
     <>
       <header className="page-header">
         <div>
           <h1 className="page-title">Escalas</h1>
-          <p className="page-subtitle">O que estava programado para cada colaborador, dia a dia</p>
+          <p className="page-subtitle">A programação operacional de cada dia — serviços, rotas e quem opera</p>
         </div>
         <div className="acoes-topo">
-          <button className="btn" onClick={recarregar}><RefreshCw size={15} /> Atualizar</button>
           {pode('config:escrever') && (
-            <>
-              <button className="btn" onClick={() => setImportando(true)}><Upload size={15} /> Importar</button>
-              <button
-                className="btn btn-primary"
-                onClick={() => setEditando({ data, situacao: 'trabalha', marcacoes: [] })}
-              >
-                <Plus size={15} /> Nova escala
-              </button>
-            </>
+            <button className="btn btn-primary" onClick={() => setImportando(true)}>
+              <Upload size={15} /> Importar escala
+            </button>
           )}
         </div>
       </header>
 
-      {/* Cobertura primeiro: as três perguntas que a operação faz sobre o dia. Ficam acima da
-          tabela porque são o motivo de alguém abrir esta tela às sete da manhã. */}
-      {aba === 'dia' && cob && (
-        <div className="kpi-grid">
-          <div className="kpi-card">
-            <div className="kpi-label">COM ESCALA</div>
-            <div className="kpi-value">{cob.comEscala}</div>
-            <div className="kpi-foot">{cob.folgas} folga(s) · {cob.extras} extra(s)</div>
-          </div>
-          <div className={`kpi-card${cob.semEscala.length ? ' kpi-card--atencao' : ''}`}>
-            <div className="kpi-label">SEM ESCALA</div>
-            <div className="kpi-value">{cob.semEscala.length}</div>
-            <div className="kpi-foot">colaborador(es) ativo(s) sem programação</div>
-          </div>
-          <div className={`kpi-card${cob.pontoSemEscala.length ? ' kpi-card--alerta' : ''}`}>
-            <div className="kpi-label">PONTO SEM ESCALA</div>
-            <div className="kpi-value">{cob.pontoSemEscala.length}</div>
-            <div className="kpi-foot">bateram ponto sem programação no dia</div>
-          </div>
-          <div className={`kpi-card${cob.escalaSemPonto.length ? ' kpi-card--atencao' : ''}`}>
-            <div className="kpi-label">ESCALA SEM PONTO</div>
-            <div className="kpi-value">{cob.escalaSemPonto.length}</div>
-            <div className="kpi-foot">programados e sem registro</div>
-          </div>
-        </div>
-      )}
+      {/* O aviso que impede a leitura errada. Fica no topo porque é o mal-entendido mais caro
+          que esta tela pode causar. */}
+      <p className="conta-aviso" style={{ marginBottom: 16 }}>
+        <Clock size={15} />
+        <span>
+          Os horários abaixo são <strong>operacionais</strong>: dizem quando a rota acontece, não
+          quando a jornada do motorista começa ou termina. A referência de jornada é o{' '}
+          <strong>Horário Padrão</strong>.
+        </span>
+      </p>
 
       <div className="card card-pad">
         <div className="toolbar toolbar--filtros">
           <div className="he-chips">
-            <button
-              className={`he-chip${aba === 'dia' ? ' he-chip--ativo' : ''}`}
-              onClick={() => setAba('dia')}
-            >
-              <CalendarDays size={13} /> Escala do dia
+            <button className={`he-chip${aba === 'dia' ? ' he-chip--ativo' : ''}`} onClick={() => setAba('dia')}>
+              <CalendarDays size={13} /> Visão do dia
             </button>
-            <button
-              className={`he-chip${aba === 'pesquisa' ? ' he-chip--ativo' : ''}`}
-              onClick={() => setAba('pesquisa')}
-            >
-              <Search size={13} /> Pesquisar colaborador
+            <button className={`he-chip${aba === 'motorista' ? ' he-chip--ativo' : ''}`} onClick={() => setAba('motorista')}>
+              <User size={13} /> Por motorista
             </button>
           </div>
 
           <div className="filtros-linha">
-            {aba === 'dia' ? (
+            <label className="campo-inline">
+              <span>Data</span>
+              <input type="date" className="input" value={data} onChange={(e) => setData(e.target.value)} />
+            </label>
+            {comEscala.length > 0 && (
               <label className="campo-inline">
-                <span>Data</span>
-                <input type="date" className="input" value={data} onChange={(e) => setData(e.target.value)} />
-              </label>
-            ) : (
-              <label className="campo-inline campo-inline--largo">
-                <span>Colaborador ou data</span>
-                <input
-                  className="input"
-                  placeholder="Nome do colaborador ou AAAA-MM-DD…"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                />
+                <span>Datas com escala</span>
+                <select className="input" value="" onChange={(e) => e.target.value && setData(e.target.value)}>
+                  <option value="">Escolher…</option>
+                  {comEscala.map((d) => (
+                    <option key={d.data} value={d.data}>
+                      {dataBr(d.data)} — {d.servicos} serviço(s)
+                    </option>
+                  ))}
+                </select>
               </label>
             )}
-
-            <label className="campo-inline">
-              <span>Situação</span>
-              <select className="input" value={situacao} onChange={(e) => setSituacao(e.target.value)}>
-                <option value="">Todas</option>
-                {(opcoes.dados?.situacoes ?? []).map((s) => (
-                  <option key={s.valor} value={s.valor}>{s.rotulo}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="campo-inline">
-              <span>Setor</span>
-              <select className="input" value={setor} onChange={(e) => setSetor(e.target.value)}>
-                <option value="">Todos</option>
-                {(opcoes.dados?.setores ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </label>
-
-            <label className="campo-inline">
-              <span>Unidade</span>
-              <select className="input" value={unidade} onChange={(e) => setUnidade(e.target.value)}>
-                <option value="">Todas</option>
-                {(opcoes.dados?.unidades ?? []).map((u) => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </label>
-
-            <label className="campo-inline">
-              <span>Turno</span>
-              <select className="input" value={turno} onChange={(e) => setTurno(e.target.value)}>
-                <option value="">Todos</option>
-                {(opcoes.dados?.turnos ?? []).map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
           </div>
         </div>
 
-        {lista.estado === 'carregando' && <Carregando texto="Carregando escalas…" />}
-        {lista.erro && <ErroAoCarregar erro={lista.erro} aoTentar={() => void lista.recarregar()} />}
-
-        {lista.estado !== 'carregando' && !lista.erro && (
-          escalas.length === 0 ? (
-            <div style={{ padding: '28px 4px' }}>
-              <p className="text-muted" style={{ margin: 0, fontSize: 13.5 }}>
-                {aba === 'dia'
-                  ? `Nenhuma escala cadastrada para ${dataBr(data)}.`
-                  : busca.trim()
-                    ? `Nenhuma escala encontrada para “${busca.trim()}”.`
-                    : 'Pesquise por colaborador ou data.'}
-              </p>
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>DATA</th>
-                    <th>COLABORADOR</th>
-                    <th>SITUAÇÃO</th>
-                    <th>HORÁRIO PREVISTO</th>
-                    <th>CARGA</th>
-                    <th>TURNO</th>
-                    <th>SETOR</th>
-                    <th>ORIGEM</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {escalas.map((e) => (
-                    <tr key={e.id}>
-                      <td className="mono">{dataBr(e.data)}</td>
-                      <td>
-                        <div className="name-cell">
-                          <span className="avatar">{initials(e.colaborador)}</span>
-                          <span>{e.colaborador}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${CLASSE_SITUACAO[e.situacao] ?? 'badge-blue'}`}>
-                          {e.situacao === 'folga' && <Coffee size={11} />} {e.rotuloSituacao}
-                        </span>
-                      </td>
-                      <td className="mono">{e.faixa || '—'}</td>
-                      <td className="mono">{e.cargaPrevistaMin ? minutosParaHoras(e.cargaPrevistaMin) : '—'}</td>
-                      <td>{e.turno || '—'}</td>
-                      <td>{e.setor || '—'}</td>
-                      <td>
-                        <span className="text-faint" style={{ fontSize: 11.5 }}>
-                          {e.origem === 'importacao' ? 'Importada' : 'Manual'}
-                          {e.atualizadoPor ? ` · ${e.atualizadoPor}` : ''}
-                        </span>
-                      </td>
-                      <td>
-                        {pode('config:escrever') && (
-                          <button className="btn btn-sm" onClick={() => setEditando(e)}>
-                            <Pencil size={13} /> Editar
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+        {aba === 'motorista' ? (
+          <PorMotorista
+            motorista={motorista}
+            setMotorista={setMotorista}
+            data={data}
+            recurso={doMotorista}
+          />
+        ) : (
+          <VisaoDoDia
+            panorama={p}
+            servicos={servicos}
+            lista={lista}
+            opcoes={opcoes.dados}
+            filtros={{ busca, empresa, filial, linha, horario }}
+            setFiltro={{ setBusca, setEmpresa, setFilial, setLinha, setHorario }}
+            aoVerMotorista={(nome) => { setMotorista(nome); setAba('motorista'); }}
+          />
         )}
       </div>
-
-      {/* Listas de exceção do dia. Ficam abaixo da tabela porque são o detalhe de quem já viu o
-          número lá em cima e quer saber de quem se trata. */}
-      {aba === 'dia' && cob && (cob.pontoSemEscala.length > 0 || cob.escalaSemPonto.length > 0 || cob.semEscala.length > 0) && (
-        <div className="card card-pad">
-          <div className="card-title"><h2><AlertTriangle size={15} /> Onde escala e ponto não se encontram</h2></div>
-          <div className="cobertura-listas">
-            <ListaSimples titulo="Bateram ponto sem escala" itens={cob.pontoSemEscala.map((p) => p.colaborador)} />
-            <ListaSimples titulo="Escala sem ponto" itens={cob.escalaSemPonto.map((p) => p.colaborador)} />
-            <ListaSimples titulo="Sem escala no dia" itens={cob.semEscala.map((p) => p.colaborador)} />
-          </div>
-        </div>
-      )}
-
-      {editando && (
-        <EditorDeEscala
-          tenantId={tenantId}
-          inicial={editando}
-          aoFechar={() => setEditando(null)}
-          aoSalvar={() => { setEditando(null); recarregar(); }}
-        />
-      )}
 
       {importando && (
         <ImportadorDeEscala
@@ -320,169 +200,244 @@ export default function Escalas() {
   );
 }
 
-function ListaSimples({ titulo, itens }: { titulo: string; itens: string[] }) {
-  return (
-    <div className="cobertura-lista">
-      <h3>{titulo} <span className="text-faint">({itens.length})</span></h3>
-      {itens.length === 0
-        ? <p className="text-faint">Nenhum.</p>
-        : <ul>{itens.slice(0, 12).map((n) => <li key={n}>{n}</li>)}
-          {itens.length > 12 && <li className="text-faint">e mais {itens.length - 12}…</li>}
-        </ul>}
-    </div>
-  );
-}
+/* ---------------------------------------------------------------- visão do dia */
 
-/* ---------------------------------------------------------------- editor */
-
-/* Editor manual. As marcações são campos de horário separados, não um texto livre: digitar
- * "06:00-16:00" numa caixa deixa o formato à sorte de quem digita, e um horário mal formado aqui
- * vira análise errada para o dia inteiro. */
-function EditorDeEscala({
-  tenantId, inicial, aoFechar, aoSalvar,
+function VisaoDoDia({
+  panorama, servicos, lista, opcoes, filtros, setFiltro, aoVerMotorista,
 }: {
-  tenantId: string;
-  inicial: Partial<Escala>;
-  aoFechar: () => void;
-  aoSalvar: () => void;
+  panorama: PanoramaDia | null | undefined;
+  servicos: ServicoEscala[];
+  lista: { estado: string; erro: unknown; recarregar: () => Promise<unknown> };
+  opcoes: { empresas: string[]; filiais: string[]; linhas: string[]; horarios: string[] } | null;
+  filtros: { busca: string; empresa: string; filial: string; linha: string; horario: string };
+  setFiltro: Record<string, (v: string) => void>;
+  aoVerMotorista: (nome: string) => void;
 }) {
-  const gravacao = useGravacao();
-  const [colaborador, setColaborador] = useState(inicial.colaborador ?? '');
-  const [data, setData] = useState(inicial.data ?? hojeIso());
-  const [situacao, setSituacao] = useState<SituacaoEscala>(inicial.situacao ?? 'trabalha');
-  const [marcacoes, setMarcacoes] = useState<string[]>(() => {
-    const m = inicial.marcacoes ?? [];
-    return [m[0] ?? '', m[1] ?? '', m[2] ?? '', m[3] ?? '', m[4] ?? '', m[5] ?? ''];
-  });
-  const [carga, setCarga] = useState(String(inicial.cargaPrevistaMin ?? 480));
-  const [turno, setTurno] = useState(inicial.turno ?? '');
-  const [setor, setSetor] = useState(inicial.setor ?? '');
-  const [unidade, setUnidade] = useState(inicial.unidade ?? '');
-  const [observacao, setObservacao] = useState(inicial.observacao ?? '');
-  const [motivo, setMotivo] = useState('');
-
-  const precisaHorario = situacao === 'trabalha' || situacao === 'extra' || situacao === 'alteracao_horario';
-
-  function alterarMarcacao(i: number, valor: string) {
-    setMarcacoes((m) => m.map((v, idx) => (idx === i ? valor : v)));
-  }
-
-  async function salvar() {
-    const r = await gravacao.executar(() => salvarEscala(tenantId, {
-      colaborador, data, situacao,
-      marcacoes: marcacoes.filter((m) => m.trim()),
-      cargaPrevistaMin: carga === '' ? null : Number(carga),
-      turno, setor, unidade, observacao, motivo,
-    }));
-    if (r) aoSalvar();
-  }
-
   return (
-    <div className="he-painel-fundo" onClick={aoFechar}>
-      <aside
-        className="he-painel"
-        role="dialog"
-        aria-label="Escala do dia"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="he-painel__topo">
-          <button className="btn btn-sm" onClick={aoFechar}><X size={14} /> Fechar</button>
-          <span className="badge badge-blue">{inicial.id ? 'Editar escala' : 'Nova escala'}</span>
-        </header>
-
-        <div className="he-painel__corpo">
-          <div className="he-form">
-            <label className="field-label" htmlFor="esc-colab">Colaborador</label>
-            <input
-              id="esc-colab" className="input" value={colaborador}
-              onChange={(e) => setColaborador(e.target.value)}
-              disabled={!!inicial.id}
-              placeholder="Nome como aparece no espelho de ponto"
-            />
-
-            <label className="field-label" htmlFor="esc-data">Data</label>
-            <input
-              id="esc-data" type="date" className="input" value={data}
-              onChange={(e) => setData(e.target.value)} disabled={!!inicial.id}
-            />
-
-            <label className="field-label" htmlFor="esc-sit">Situação</label>
-            <select
-              id="esc-sit" className="input" value={situacao}
-              onChange={(e) => setSituacao(e.target.value as SituacaoEscala)}
-            >
-              {(Object.keys(ROTULO_SITUACAO_ESCALA) as SituacaoEscala[])
-                .filter((s) => s !== 'sem_definicao')
-                .map((s) => <option key={s} value={s}>{ROTULO_SITUACAO_ESCALA[s]}</option>)}
-            </select>
-
-            {precisaHorario && (
-              <>
-                <span className="field-label">Horário previsto</span>
-                <p className="text-faint" style={{ margin: '0 0 8px', fontSize: 12 }}>
-                  Preencha em pares de entrada e saída. Deixe os últimos vazios se a jornada tiver
-                  um intervalo só.
-                </p>
-                <div className="marcacoes-grid">
-                  {marcacoes.map((m, i) => (
-                    <label key={i} className="marcacao">
-                      <span>{i % 2 === 0 ? `Entrada ${Math.floor(i / 2) + 1}` : `Saída ${Math.floor(i / 2) + 1}`}</span>
-                      <input
-                        type="time" className="input" value={m}
-                        onChange={(e) => alterarMarcacao(i, e.target.value)}
-                      />
-                    </label>
-                  ))}
-                </div>
-
-                <label className="field-label" htmlFor="esc-carga">Carga prevista (minutos)</label>
-                <input
-                  id="esc-carga" type="number" className="input" value={carga}
-                  onChange={(e) => setCarga(e.target.value)}
-                />
-              </>
+    <>
+      {panorama && panorama.servicos > 0 && (
+        <div className="resumo-dia" style={{ marginBottom: 16 }}>
+          <div className="resumo-dia__numeros">
+            <div><strong>{panorama.motoristas}</strong><span>motoristas programados</span></div>
+            <div><strong>{panorama.servicos}</strong><span>serviços</span></div>
+            <div><strong>{panorama.empresas}</strong><span>empresas/clientes</span></div>
+            <div><strong>{panorama.linhas}</strong><span>linhas/rotas</span></div>
+            {panorama.terceirizados > 0 && (
+              <div><strong>{panorama.terceirizados}</strong><span>de terceiros</span></div>
             )}
-
-            <label className="field-label" htmlFor="esc-turno">Turno</label>
-            <input id="esc-turno" className="input" value={turno} onChange={(e) => setTurno(e.target.value)} />
-
-            <label className="field-label" htmlFor="esc-setor">Setor</label>
-            <input id="esc-setor" className="input" value={setor} onChange={(e) => setSetor(e.target.value)} />
-
-            <label className="field-label" htmlFor="esc-unid">Unidade</label>
-            <input id="esc-unid" className="input" value={unidade} onChange={(e) => setUnidade(e.target.value)} />
-
-            <label className="field-label" htmlFor="esc-obs">Observação</label>
-            <textarea id="esc-obs" className="input" rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} />
-
-            {inicial.id && (
-              <>
-                <label className="field-label" htmlFor="esc-motivo">Motivo da alteração</label>
-                <input
-                  id="esc-motivo" className="input" value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  placeholder="Fica registrado no histórico e na auditoria"
-                />
-              </>
-            )}
-
-            <FeedbackGravacao estado={gravacao.estado} erro={gravacao.erro} />
-
-            <button
-              className="btn btn-primary"
-              style={{ marginTop: 10 }}
-              disabled={!colaborador.trim() || !data || gravacao.estado === 'salvando'}
-              onClick={() => void salvar()}
-            >
-              <Check size={15} /> {inicial.id ? 'Salvar alteração' : 'Cadastrar escala'}
-            </button>
-
-            <p className="text-faint" style={{ marginTop: 8, fontSize: 11.5 }}>
-              <ClipboardList size={11} /> Toda alteração fica no histórico da escala e na trilha de auditoria.
-            </p>
           </div>
+          {panorama.porRotulo.length > 0 && (
+            <ul className="resumo-dia__tipos">
+              {panorama.porRotulo.map((r: { rotulo: string; rotuloTexto: string; total: number }) => (
+                <li key={r.rotulo}><span className="ponto" /> {r.total} {r.rotuloTexto.toLowerCase()}</li>
+              ))}
+            </ul>
+          )}
         </div>
-      </aside>
-    </div>
+      )}
+
+      <div className="filtros-linha" style={{ marginBottom: 14 }}>
+        <label className="campo-inline campo-inline--largo">
+          <span><Search size={12} /> Pesquisar</span>
+          <input
+            className="input" placeholder="Motorista, rota, empresa ou descrição…"
+            value={filtros.busca} onChange={(e) => setFiltro.setBusca(e.target.value)}
+          />
+        </label>
+        <label className="campo-inline">
+          <span><Building2 size={12} /> Empresa</span>
+          <select className="input" value={filtros.empresa} onChange={(e) => setFiltro.setEmpresa(e.target.value)}>
+            <option value="">Todas</option>
+            {(opcoes?.empresas ?? []).map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label className="campo-inline">
+          <span>Filial</span>
+          <select className="input" value={filtros.filial} onChange={(e) => setFiltro.setFilial(e.target.value)}>
+            <option value="">Todas</option>
+            {(opcoes?.filiais ?? []).map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label className="campo-inline">
+          <span><Route size={12} /> Linha</span>
+          <select className="input" value={filtros.linha} onChange={(e) => setFiltro.setLinha(e.target.value)}>
+            <option value="">Todas</option>
+            {(opcoes?.linhas ?? []).map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label className="campo-inline">
+          <span><Clock size={12} /> Horário</span>
+          <select className="input" value={filtros.horario} onChange={(e) => setFiltro.setHorario(e.target.value)}>
+            <option value="">Todos</option>
+            {(opcoes?.horarios ?? []).map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {lista.estado === 'carregando' && <Carregando texto="Carregando serviços…" />}
+      {lista.erro != null && <ErroAoCarregar erro={lista.erro as never} aoTentar={() => void lista.recarregar()} />}
+
+      {lista.estado !== 'carregando' && lista.erro == null && (
+        servicos.length === 0 ? (
+          <p className="text-muted" style={{ margin: '24px 0', fontSize: 13.5 }}>
+            Nenhum serviço para este recorte. Importe a escala do período ou ajuste os filtros.
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>HORÁRIO</th>
+                  <th>MOTORISTA</th>
+                  <th>EMPRESA</th>
+                  <th>LINHA</th>
+                  <th>DESCRIÇÃO</th>
+                  <th>TIPO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {servicos.map((s) => (
+                  <tr key={s.id}>
+                    <td className="mono">
+                      <b>{s.horario || '—'}</b>
+                      {s.horarioDescricao && <div className="he-antes">na descrição {s.horarioDescricao}</div>}
+                      {s.horarioCondicional && <div className="he-antes">{s.horarioCondicional}</div>}
+                    </td>
+                    <td>
+                      <button className="link-inline" onClick={() => aoVerMotorista(s.colaborador)}>
+                        <span className="name-cell">
+                          <span className="avatar">{initials(s.colaborador)}</span>
+                          <span className="cell-strong">{s.colaborador || '—'}</span>
+                        </span>
+                      </button>
+                      {s.terceirizado && <div className="text-faint" style={{ fontSize: 11 }}>terceirizado</div>}
+                    </td>
+                    <td>
+                      {s.empresa}
+                      {s.filial && <div className="text-faint" style={{ fontSize: 11 }}>{s.filial}</div>}
+                    </td>
+                    <td className="mono">{s.linha || '—'}</td>
+                    <td style={{ maxWidth: 340 }}>{s.descricao}</td>
+                    <td>
+                      <span className={`badge ${CLASSE_ROTULO[s.rotulo] ?? 'badge-gray'}`}>{s.rotuloTexto}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </>
   );
 }
+
+/* ---------------------------------------------------------------- por motorista */
+
+function PorMotorista({
+  motorista, setMotorista, data, recurso,
+}: {
+  motorista: string;
+  setMotorista: (v: string) => void;
+  data: string;
+  recurso: { dados: unknown; estado: string; erro: unknown; recarregar: () => Promise<unknown> };
+}) {
+  const dados = recurso.dados as {
+    total: number;
+    servicos: ServicoEscala[];
+    referenciaTrabalhista: { tipo: string; rotulo: string; faixa: string; cargaPrevistaMin: number | null };
+  } | null;
+
+  return (
+    <>
+      <label className="campo-inline campo-inline--largo" style={{ marginBottom: 16 }}>
+        <span><Search size={12} /> Motorista</span>
+        <input
+          className="input"
+          placeholder="Nome do motorista, como aparece na escala…"
+          value={motorista}
+          onChange={(e) => setMotorista(e.target.value)}
+        />
+      </label>
+
+      {!motorista.trim() && (
+        <p className="text-muted" style={{ margin: '20px 0', fontSize: 13.5 }}>
+          Digite o nome de um motorista para ver toda a programação dele em {dataBr(data)}.
+        </p>
+      )}
+
+      {motorista.trim() && recurso.estado === 'carregando' && <Carregando texto="Carregando programação…" />}
+
+      {dados && (
+        dados.total === 0 ? (
+          <p className="text-muted" style={{ margin: '20px 0', fontSize: 13.5 }}>
+            Nenhum serviço programado para <strong>{motorista}</strong> em {dataBr(data)}.
+          </p>
+        ) : (
+          <>
+            <h2 className="he-painel__nome" style={{ marginBottom: 2 }}>{motorista}</h2>
+            <p className="he-painel__data mono" style={{ marginBottom: 16 }}>{dataBr(data)}</p>
+
+            {/* AS DUAS FONTES, SEPARADAS E NOMEADAS. É isto que impede a leitura errada. */}
+            <div className="referencia-comparacao" style={{ marginBottom: 18 }}>
+              <div className="ref-bloco ref-bloco--usada">
+                <span className="ref-bloco__rotulo">Referência trabalhista — horário padrão</span>
+                <span className="mono">
+                  {dados.referenciaTrabalhista.tipo === 'padrao'
+                    ? dados.referenciaTrabalhista.faixa
+                    : '— sem horário padrão vigente nesta data —'}
+                </span>
+                {dados.referenciaTrabalhista.cargaPrevistaMin != null && (
+                  <span className="text-faint" style={{ fontSize: 11 }}>
+                    carga {minutosParaHoras(dados.referenciaTrabalhista.cargaPrevistaMin)}
+                  </span>
+                )}
+              </div>
+              <div className="ref-bloco ref-bloco--ponto">
+                <span className="ref-bloco__rotulo">Programação operacional — {dados.total} serviço(s)</span>
+                <span className="text-faint" style={{ fontSize: 11.5 }}>
+                  Horários de rota. Não definem início nem fim da jornada.
+                </span>
+              </div>
+            </div>
+
+            <ol className="programacao">
+              {dados.servicos.map((s) => (
+                <li key={s.id} className="programacao__item">
+                  <span className="programacao__hora mono">{s.horario || '—'}</span>
+                  <span className="programacao__corpo">
+                    <span className="programacao__topo">
+                      <strong>{s.empresa}</strong>
+                      {s.linha && <span className="mono programacao__linha">Linha {s.linha}</span>}
+                      <span className={`badge ${CLASSE_ROTULO[s.rotulo] ?? 'badge-gray'}`}>{s.rotuloTexto}</span>
+                      {s.terceirizado && <span className="badge badge-gray">terceirizado</span>}
+                    </span>
+                    <span className="programacao__desc">{s.descricao}</span>
+                    {(s.horarioDescricao || s.horarioCondicional || s.projecaoCarro) && (
+                      <span className="text-faint" style={{ fontSize: 11.5 }}>
+                        {s.horarioDescricao && <>horário na descrição {s.horarioDescricao} · </>}
+                        {s.horarioCondicional && <>{s.horarioCondicional} · </>}
+                        {s.projecaoCarro && <>carro {s.projecaoCarro}</>}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+
+            {dados.servicos.some((s) => s.horarioCondicional) && (
+              <p className="conta-aviso" style={{ marginTop: 14 }}>
+                <AlertTriangle size={15} />
+                <span>
+                  Alguns serviços têm horário diferente em dias específicos, escrito no texto da
+                  planilha. O sistema guarda essa observação como está e não a interpreta.
+                </span>
+              </p>
+            )}
+          </>
+        )
+      )}
+    </>
+  );
+}
+

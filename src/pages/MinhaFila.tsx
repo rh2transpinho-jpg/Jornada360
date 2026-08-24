@@ -15,7 +15,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, ClipboardCopy, Clock,
-  HelpCircle, MessageSquare, RefreshCw, Repeat2, Search, Sparkles, X,
+  HelpCircle, MessageSquare, RefreshCw, Repeat2, Route, Search, Sparkles, X,
 } from 'lucide-react';
 import { useSessao } from '../workspace/WorkspaceContext';
 import { useRecurso, useGravacao } from '../data/useRecurso';
@@ -338,17 +338,14 @@ function PainelExplicacao({
               </p>
 
               <section className="he-secao">
-                <h3 className="he-secao__titulo">Referência utilizada</h3>
+                <h3 className="he-secao__titulo">Referência trabalhista utilizada</h3>
                 <div className="referencia-comparacao">
                   <div className={a.referenciaTipo === 'padrao' ? 'ref-bloco ref-bloco--usada' : 'ref-bloco'}>
-                    <span className="ref-bloco__rotulo">Horário padrão</span>
-                    <span className="mono">{a.padraoHorarios || (a.referenciaTipo === 'padrao' ? a.referenciaHorarios : '— não cadastrado —')}</span>
+                    <span className="ref-bloco__rotulo">Horário padrão vigente</span>
+                    <span className="mono">
+                      {a.referenciaTipo === 'padrao' ? a.referenciaHorarios : '— não cadastrado para esta data —'}
+                    </span>
                     {a.referenciaTipo === 'padrao' && <span className="ref-bloco__marca">usada</span>}
-                  </div>
-                  <div className={a.referenciaTipo === 'escala' ? 'ref-bloco ref-bloco--usada' : 'ref-bloco'}>
-                    <span className="ref-bloco__rotulo">Escala do dia</span>
-                    <span className="mono">{a.referenciaTipo === 'escala' ? a.referenciaHorarios : '— sem escala específica —'}</span>
-                    {a.referenciaTipo === 'escala' && <span className="ref-bloco__marca">usada</span>}
                   </div>
                   <div className="ref-bloco ref-bloco--ponto">
                     <span className="ref-bloco__rotulo">Ponto registrado</span>
@@ -356,6 +353,33 @@ function PainelExplicacao({
                   </div>
                 </div>
               </section>
+
+              {/* CONTEXTO OPERACIONAL — em bloco separado, com nome próprio.
+                  Uma rota às 14:30 não é saída prevista, e a tela nunca a apresenta como tal. */}
+              {a.contextoOperacional && a.contextoOperacional.total > 0 && (
+                <section className="he-secao">
+                  <h3 className="he-secao__titulo">
+                    <Route size={13} /> Contexto operacional — {a.contextoOperacional.total} serviço(s) no dia
+                  </h3>
+                  <p className="text-faint" style={{ fontSize: 11.5, marginTop: 0 }}>
+                    {a.contextoOperacional.observacao}
+                  </p>
+                  <ol className="programacao programacao--compacta">
+                    {a.contextoOperacional.servicos.map((s) => (
+                      <li key={s.id} className="programacao__item">
+                        <span className="programacao__hora mono">{s.horario || '—'}</span>
+                        <span className="programacao__corpo">
+                          <span className="programacao__topo">
+                            <strong>{s.empresa}</strong>
+                            {s.linha && <span className="mono programacao__linha">Linha {s.linha}</span>}
+                          </span>
+                          <span className="programacao__desc">{s.descricao}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
 
               <section className="he-secao">
                 <h3 className="he-secao__titulo">O que divergiu</h3>
