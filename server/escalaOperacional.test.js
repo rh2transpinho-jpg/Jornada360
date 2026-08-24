@@ -177,6 +177,23 @@ describe('CENÁRIO H — a última rota do dia NÃO é o fim da jornada', () => 
   });
 });
 
+describe('quem tem horário padrão cadastrado é reconhecido', () => {
+  it('não aparece como nome desconhecido na prévia', async () => {
+    /* Defeito achado na validação em navegador: a prévia acusava como desconhecido justamente
+     * quem estava melhor cadastrado — alguém com horário padrão digitado à mão no sistema. */
+    const r = await req('POST', T('/servicos/importacao/previa'), {
+      token: A.token,
+      corpo: {
+        servicos: [
+          svc('2026-09-10', 'ACME', '500', '08:00', '500 - Rota', 'Ademar dos Santos'),
+          svc('2026-09-10', 'ACME', '501', '08:00', '501 - Rota', 'Nunca Visto'),
+        ],
+      },
+    });
+    expect(r.corpo.motoristasNaoCadastrados).toEqual(['Nunca Visto']);
+  });
+});
+
 /* ================================================================ cenários A–G */
 
 describe('múltiplos serviços por motorista e por dia', () => {

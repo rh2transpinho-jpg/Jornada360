@@ -26,13 +26,17 @@ import * as processamento from './processamento.js';
  * chave normaliza acento; "ANDREIA M." e "ANDREIA MERCEDES" NÃO batem, e é isso que se quer — um
  * palpite silencioso aqui atribui o serviço de uma pessoa a outra. */
 async function nomesConhecidos(tenantId) {
-  const [empregados, jornadas, jaImportados] = await Promise.all([
+  const [empregados, comPadrao, jornadas, jaImportados] = await Promise.all([
     consultar('SELECT nome FROM employees WHERE tenant_id = ?', [tenantId]),
+    /* Quem tem HORÁRIO PADRÃO cadastrado é conhecido do sistema — foi alguém que digitou o nome
+     * dele aqui dentro. Faltava nesta lista, e a prévia acusava como desconhecido justamente
+     * quem estava melhor cadastrado. Apareceu na validação em navegador. */
+    consultar("SELECT DISTINCT colaborador_nome AS nome FROM horarios_padrao WHERE tenant_id = ?", [tenantId]),
     consultar('SELECT DISTINCT colaborador_nome AS nome FROM he_ocorrencias WHERE tenant_id = ?', [tenantId]),
     consultar("SELECT DISTINCT colaborador_nome AS nome FROM escala_servicos WHERE tenant_id = ? AND colaborador_nome <> ''", [tenantId]),
   ]);
   const set = new Set();
-  for (const l of [...empregados, ...jornadas, ...jaImportados]) {
+  for (const l of [...empregados, ...comPadrao, ...jornadas, ...jaImportados]) {
     const c = chaveColaborador(l.nome);
     if (c) set.add(c);
   }
