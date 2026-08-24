@@ -29,6 +29,7 @@ const CAMPOS = `id, colaborador_chave AS colaboradorChave, colaborador_nome AS c
   carga_prevista_min AS cargaPrevistaMin, extra_previsto_min AS extraPrevistoMin,
   ponto_marcacoes AS pontoMarcacoes, jornada_realizada_min AS jornadaRealizadaMin,
   he_min AS heMin, excedente_min AS excedenteMin, classificacao,
+  servicos_no_dia AS servicosNoDia,
   divergencias_json AS divergenciasJson, prioridade, analisado_em AS analisadoEm`;
 
 function hidratar(linha) {
@@ -64,7 +65,7 @@ export async function sincronizarDia(tenantId, dateKey, analises) {
         a.referencia.faixa ?? '', a.padraoHorarios ?? '',
         a.referencia.cargaPrevistaMin ?? null, a.referencia.extraMin ?? null,
         a.pontoMarcacoes ?? '', a.jornadaRealizadaMin ?? null,
-        a.heMin ?? 0, a.excedenteMin ?? 0, a.classificacao,
+        a.heMin ?? 0, a.excedenteMin ?? 0, a.classificacao, a.servicosNoDia ?? 0,
         JSON.stringify(a.divergencias ?? []), a.prioridade ?? 0, agora,
       ];
 
@@ -74,7 +75,8 @@ export async function sincronizarDia(tenantId, dateKey, analises) {
              referencia_tipo = ?, referencia_id = ?, referencia_situacao = ?,
              referencia_horarios = ?, padrao_horarios = ?, carga_prevista_min = ?,
              extra_previsto_min = ?, ponto_marcacoes = ?, jornada_realizada_min = ?,
-             he_min = ?, excedente_min = ?, classificacao = ?, divergencias_json = ?,
+             he_min = ?, excedente_min = ?, classificacao = ?, servicos_no_dia = ?,
+             divergencias_json = ?,
              prioridade = ?, analisado_em = ?
            WHERE id = ?`,
           [...valores, existente.id],
@@ -87,8 +89,8 @@ export async function sincronizarDia(tenantId, dateKey, analises) {
              colaborador_nome, colaborador_id, referencia_tipo, referencia_id,
              referencia_situacao, referencia_horarios, padrao_horarios, carga_prevista_min,
              extra_previsto_min, ponto_marcacoes, jornada_realizada_min, he_min, excedente_min,
-             classificacao, divergencias_json, prioridade, analisado_em)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             classificacao, servicos_no_dia, divergencias_json, prioridade, analisado_em)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [id, tenantId, a.colaboradorChave, dateKey, ...valores],
         );
         a.id = id;

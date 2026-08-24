@@ -4,7 +4,7 @@
  * --------------------------------------
  *   1. o dia é salvo (snapshot do motor, intocado);
  *   2. as ocorrências de HE são sincronizadas — números atualizados, análise humana preservada;
- *   3. cada jornada é analisada contra a referência certa (escala > padrão > nenhuma);
+ *   3. cada jornada é analisada contra o HORÁRIO PADRÃO vigente (a referência trabalhista);
  *   4. o resultado é classificado em OK / atenção / crítico;
  *   5. a fila recebe SÓ o que precisa de gente, e perde o que deixou de ser problema.
  *
@@ -16,13 +16,14 @@
  *
  * ORDEM IMPORTA: a fila é sincronizada DEPOIS da análise porque ela lê o `analise.id` gravado no
  * passo anterior. */
-import { consultar, executar } from '../db/index.js';
+import { executar } from '../db/index.js';
 import * as operacao from '../repositories/operacaoRepository.js';
 import * as he from '../repositories/heRepository.js';
 import * as analiseRepo from '../repositories/analiseRepository.js';
+import * as servicos from '../repositories/escalaServicoRepository.js';
 import * as empresa from '../repositories/empresaRepository.js';
 import { analisarDiaCompleto, resumirAnalises } from './analiseJornada.js';
-import { faixaLegivel, resolverReferenciasDoDia } from './referenciaJornada.js';
+import { resolverReferenciasDoDia } from './referenciaJornada.js';
 import { chaveColaborador } from '../repositories/heRepository.js';
 
 const REGRAS_PADRAO = { toleranceMin: 0, intervalMinMin: 0, prazoPadraoDias: 3 };
@@ -41,15 +42,16 @@ export async function processarDia(tenantId, dateKey, snapshot, opcoes = {}) {
    * da própria priorização. */
   const reincidencias = await analiseRepo.reincidenciasDaJanela(tenantId, dateKey, 30);
 
+  /* Quantos serviços operacionais cada pessoa tem no dia. É CONTEXTO — entra na explicação da
+   * ocorrência e não em nenhuma conta de jornada. Uma consulta por dia, não por pessoa. */
+  const servicosPorColaborador = await servicos.contagemPorColaborador(tenantId, dateKey);
+
   const analises = await analisarDiaCompleto(tenantId, dateKey, snapshot, {
     toleranciaMin: regras.toleranceMin,
     intervaloMinimoMin: regras.intervalMinMin,
     reincidencias,
+    servicosPorColaborador,
   });
-
-  /* O horário padrão vigente vai junto MESMO quando a escala venceu: é o que permite a tela
-   * mostrar os dois lado a lado e explicar por que a escala foi escolhida. */
-  await anexarPadraoVigente(tenantId, dateKey, analises);
 
   await analiseRepo.sincronizarDia(tenantId, dateKey, analises);
 
@@ -58,34 +60,6 @@ export async function processarDia(tenantId, dateKey, snapshot, opcoes = {}) {
     : await analiseRepo.sincronizarFila(tenantId, dateKey, analises, { prazoDias: regras.prazoPadraoDias });
 
   return { resumo: resumirAnalises(analises), fila, analises };
-}
-
-/* Busca o padrão vigente de quem foi analisado com escala, só para exibição.
- *
- * Uma consulta a mais por dia, não por pessoa: a explicação "usei a escala E NÃO o padrão" precisa
- * dos dois valores, e reconsultar isso na hora de abrir cada ocorrência leria o cadastro de HOJE,
- * que pode já ter mudado desde a análise. */
-async function anexarPadraoVigente(tenantId, dateKey, analises) {
-  const comEscala = analises.filter((a) => a.referencia.tipo === 'escala');
-  if (!comEscala.length) return;
-
-  /* Resolve ignorando a escala: consulta direta na tabela de padrão. */
-  const chaves = comEscala.map((a) => a.colaboradorChave);
-  const marcadores = chaves.map(() => '?').join(', ');
-
-  const padroes = await consultar(
-    `SELECT colaborador_chave AS chave, marcacoes_json AS m FROM horarios_padrao
-      WHERE tenant_id = ? AND status = 'ativo'
-        AND vigencia_inicio <= ? AND (vigencia_fim IS NULL OR vigencia_fim >= ?)
-        AND colaborador_chave IN (${marcadores})
-      ORDER BY vigencia_inicio ASC`,
-    [tenantId, dateKey, dateKey, ...chaves],
-  );
-
-  const mapa = new Map();
-  for (const p of padroes) mapa.set(p.chave, faixaLegivel(JSON.parse(p.m || '[]')));
-
-  for (const a of comEscala) a.padraoHorarios = mapa.get(a.colaboradorChave) ?? '';
 }
 
 /* Grava o dia E processa. É o caminho único usado pela rota e pelos testes. */

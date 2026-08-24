@@ -1,16 +1,19 @@
-/* ESCALA × HORÁRIO PADRÃO × PONTO — a precedência que decide se uma hora extra existe.
+/* HORÁRIO PADRÃO × PONTO — a referência trabalhista, e o que NÃO a substitui.
  *
- * O CASO QUE ESTE ARQUIVO DEFENDE
- * ------------------------------
- * João tem horário habitual 06:00–16:00. Numa terça específica foi escalado para 06:00–17:00.
- * Saiu 17:18.
+ * ESTE ARQUIVO JÁ DEFENDEU O OPOSTO, E VALE SABER POR QUÊ
+ * ------------------------------------------------------
+ * Numa fase anterior ele fixava "a escala do dia vence o horário padrão". A premissa era que a
+ * escala descrevia jornada. A auditoria da escala real mostrou que não descreve: são SERVIÇOS —
+ * 4,3 por motorista por dia, do primeiro às 05:40 ao último às 22:00. Derivar entrada e saída
+ * dali produzia 16h20 de jornada prevista e fazia a hora extra verdadeira desaparecer.
  *
- *   comparando contra o hábito → quase 80 minutos de "hora extra" que ninguém deve
- *   comparando contra a escala → 18 minutos, que é a verdade
+ * A regra corrigida, que estes testes agora fixam:
  *
- * Comparar contra o horário errado não produz um número aproximado: produz uma cobrança falsa,
- * com nome e data, que alguém vai ter que desmentir. Os testes abaixo fixam as três garantias que
- * impedem isso: a precedência, a vigência histórica, e a preservação da análise humana. */
+ *   horário padrão vigente → referência TRABALHISTA (entrada, intervalo, saída, carga, HE)
+ *   escala operacional     → CONTEXTO, nunca horário de jornada (ver escalaOperacional.test.js)
+ *
+ * O que continua valendo sem mudança: a vigência histórica (editar hoje não reescreve julho) e a
+ * preservação da análise humana no reprocessamento. */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { criarApp } from './app.js';
 import { fecharBanco } from './db/index.js';
@@ -94,7 +97,7 @@ afterAll(async () => {
 
 /* ================================================================ BLOQUEADOR 1 */
 
-describe('BLOQUEADOR — a escala do dia tem precedência sobre o horário padrão', () => {
+describe('BLOQUEADOR — o horário padrão é a referência trabalhista', () => {
   it('cadastra o horário padrão de João: 06:00–16:00', async () => {
     const r = await req('POST', T('/padroes'), {
       token: A.token,
@@ -118,7 +121,7 @@ describe('BLOQUEADOR — a escala do dia tem precedência sobre o horário padr�
     expect(r.corpo.saidaPrevista).toBe('16:00');
   });
 
-  it('com escala 06:00–17:00 no dia, a referência passa a ser a ESCALA', async () => {
+  it('uma escala do dia com OUTRO horário NÃO muda a referência trabalhista', async () => {
     const r = await req('PUT', T('/escalas-dia'), {
       token: A.token,
       corpo: {
@@ -130,13 +133,14 @@ describe('BLOQUEADOR — a escala do dia tem precedência sobre o horário padr�
     expect(r.status).toBe(200);
 
     const ref = await req('GET', T('/referencia/2026-08-20/João da Silva'), { token: A.token });
-    expect(ref.corpo.tipo).toBe('escala');
-    /* O QUE ESTE TESTE EXISTE PARA FIXAR: a saída prevista do dia é 17:00, não 16:00. */
-    expect(ref.corpo.saidaPrevista).toBe('17:00');
-    expect(ref.corpo.extraMin).toBe(120);
+    /* O QUE ESTE TESTE PASSOU A FIXAR: mesmo com escala cadastrada para o dia, a referência
+     * trabalhista continua sendo o horário padrão vigente. A escala não define jornada. */
+    expect(ref.corpo.tipo).toBe('padrao');
+    expect(ref.corpo.saidaPrevista).toBe('16:00');
+    expect(ref.corpo.extraMin).toBe(60);
   });
 
-  it('o ponto encerrando 17:18 é comparado contra 17:00 — NÃO contra 16:00', async () => {
+  it('o ponto encerrando 17:18 é comparado contra 16:00 — o padrão, não a escala', async () => {
     const r = await req('PUT', T('/dias/2026-08-20'), {
       token: A.token,
       corpo: {
@@ -150,20 +154,17 @@ describe('BLOQUEADOR — a escala do dia tem precedência sobre o horário padr�
     const joao = analises.corpo.find((a) => a.colaborador === 'João da Silva');
     expect(joao).toBeDefined();
 
-    /* A referência gravada na análise é a escala. */
-    expect(joao.referenciaTipo).toBe('escala');
-    expect(joao.referenciaHorarios).toBe('06:00–11:00 · 12:00–17:00');
-
-    /* E o horário padrão continua registrado ao lado, para a explicação mostrar os dois. */
-    expect(joao.padraoHorarios).toBe('06:00–11:00 · 12:00–16:00');
+    /* A referência gravada na análise é o PADRÃO. */
+    expect(joao.referenciaTipo).toBe('padrao');
+    expect(joao.referenciaHorarios).toBe('06:00–11:00 · 12:00–16:00');
 
     const saida = joao.divergencias.find((d) => d.tipo === 'saida_posterior');
     expect(saida).toBeDefined();
-    /* O NÚMERO QUE PROVA A PRECEDÊNCIA: +18 minutos sobre 17:00.
-     * Contra o padrão (16:00) daria +78 — e é esse 78 que este teste existe para impedir. */
-    expect(saida.previsto).toBe('17:00');
+    /* +78 minutos sobre 16:00, que é o horário contratado. Ler 17:00 da escala e concluir +18
+     * esconderia 60 minutos de hora extra real — que é o defeito que esta fase corrigiu. */
+    expect(saida.previsto).toBe('16:00');
     expect(saida.realizado).toBe('17:18');
-    expect(saida.diferencaMin).toBe(18);
+    expect(saida.diferencaMin).toBe(78);
   });
 
   it('a explicação diz, em texto, qual referência foi usada e por quê', async () => {
@@ -172,10 +173,10 @@ describe('BLOQUEADOR — a escala do dia tem precedência sobre o horário padr�
 
     const r = await req('GET', T(`/analises/${joao.id}/explicacao`), { token: A.token });
     expect(r.status).toBe(200);
-    expect(r.corpo.porQue).toContain('ESCALA');
-    expect(r.corpo.porQue).toContain('06:00–11:00 · 12:00–17:00');
-    /* Precisa citar o padrão que NÃO foi usado: é o que responde "por que não 16:00?". */
+    expect(r.corpo.porQue).toContain('HORÁRIO PADRÃO');
     expect(r.corpo.porQue).toContain('06:00–11:00 · 12:00–16:00');
+    /* E NÃO pode apresentar o horário da escala como referência de jornada. */
+    expect(r.corpo.porQue).not.toContain('12:00–17:00');
   });
 });
 
@@ -267,9 +268,9 @@ describe('BLOQUEADOR — reprocessar preserva a análise humana', () => {
     const r = await req('GET', T('/he?busca=João'), { token: A.token });
     const joao = r.corpo.find((o) => o.data === '2026-08-20');
     expect(joao).toBeDefined();
-    expect(joao.referenciaTipo).toBe('escala');
-    expect(joao.referenciaHorarios).toBe('06:00–11:00 · 12:00–17:00');
-    expect(joao.referenciaExtraMin).toBe(120);
+    expect(joao.referenciaTipo).toBe('padrao');
+    expect(joao.referenciaHorarios).toBe('06:00–11:00 · 12:00–16:00');
+    expect(joao.referenciaExtraMin).toBe(60);
     ocorrencia = joao.id;
   });
 
@@ -286,14 +287,16 @@ describe('BLOQUEADOR — reprocessar preserva a análise humana', () => {
     expect(r.corpo.responsavel).toBeTruthy();
   });
 
-  it('a escala é corrigida e o dia reprocessado — a HE muda, a justificativa fica', async () => {
-    /* Correção da escala: a saída prevista passa a ser 18:00. */
-    await req('PUT', T('/escalas-dia'), {
+  it('o horário padrão é corrigido e o dia reprocessado — a HE muda, a justificativa fica', async () => {
+    /* Correção do HORÁRIO PADRÃO — é ele que define jornada. Corrigir a escala operacional não
+     * mudaria nada aqui, e é exatamente esse o ponto da fase. */
+    const atual = await req('GET', T('/padroes?busca=João'), { token: A.token });
+    const padraoId = atual.corpo[0].id;
+    await req('PUT', T(`/padroes/${padraoId}`), {
       token: A.token,
       corpo: {
-        colaborador: 'João da Silva', data: '2026-08-20', situacao: 'alteracao_horario',
         marcacoes: ['06:00', '11:00', '12:00', '18:00'], cargaPrevistaMin: 480,
-        motivo: 'Escala corrigida pela supervisão',
+        motivo: 'Horário padrão corrigido pelo RH',
       },
     });
 
@@ -329,6 +332,7 @@ describe('BLOQUEADOR — reprocessar preserva a análise humana', () => {
 
   it('a nova referência também ficou registrada na ocorrência', async () => {
     const r = await req('GET', T(`/he/${ocorrencia}`), { token: A.token });
+    expect(r.corpo.referenciaTipo).toBe('padrao');
     expect(r.corpo.referenciaHorarios).toBe('06:00–11:00 · 12:00–18:00');
   });
 });
@@ -513,22 +517,21 @@ describe('a pendência se encerra sozinha quando a causa deixa de existir', () =
     expect(fila.corpo.some((p) => p.tipo === 'sem_referencia' || p.tipo === 'ponto_sem_escala')).toBe(true);
   });
 
-  it('importar a escala do dia resolve a pendência SEM ninguém fechar à mão', async () => {
-    const r = await req('POST', T('/escalas-dia/importacao'), {
+  it('cadastrar o horário padrão resolve a pendência SEM ninguém fechar à mão', async () => {
+    /* Quem resolve "sem referência" é o HORÁRIO PADRÃO — a referência trabalhista. Importar a
+     * escala operacional não resolveria: ela é contexto e não diz qual é a jornada. */
+    const r = await req('POST', T('/padroes'), {
       token: A.token,
       corpo: {
-        arquivo: 'escala-agosto.xlsx',
-        formato: 'xlsx',
-        linhas: [{
-          colaborador: 'Elias Novo', data: DIA, situacao: 'trabalha',
-          marcacoes: ['07:00', '11:00', '12:00', '16:00'], cargaPrevistaMin: 480,
-        }],
+        colaborador: 'Elias Novo', marcacoes: ['07:00', '11:00', '12:00', '16:00'],
+        cargaPrevistaMin: 480, vigenciaInicio: '2026-01-01',
       },
     });
-    expect(r.status).toBe(200);
-    expect(r.corpo.criadas).toBe(1);
-    /* A importação reprocessa os dias afetados — é isso que dispara a resolução. */
-    expect(r.corpo.reprocesso.dias).toBeGreaterThan(0);
+    expect(r.status).toBe(201);
+
+    /* O cadastro não reprocessa sozinho — quem dispara é o reprocessamento explícito. */
+    const rp = await req('POST', T('/reprocessar'), { token: A.token, corpo: { de: DIA, ate: DIA } });
+    expect(rp.corpo.dias).toBeGreaterThan(0);
 
     const fila = await req('GET', T(`/fila?data=${DIA}`), { token: A.token });
     expect(fila.corpo.some((p) => p.tipo === 'sem_referencia')).toBe(false);
@@ -540,10 +543,10 @@ describe('a pendência se encerra sozinha quando a causa deixa de existir', () =
     expect(auto.resolvidaAutomaticamente).toBe(true);
   });
 
-  it('e a jornada passa a ser analisada contra a escala importada', async () => {
+  it('e a jornada passa a ser analisada contra o horário padrão cadastrado', async () => {
     const r = await req('GET', T(`/analises?data=${DIA}`), { token: A.token });
     const elias = r.corpo.find((a) => a.colaborador === 'Elias Novo');
-    expect(elias.referenciaTipo).toBe('escala');
+    expect(elias.referenciaTipo).toBe('padrao');
     expect(elias.divergencias.some((d) => d.tipo === 'saida_posterior')).toBe(true);
   });
 });
@@ -552,11 +555,21 @@ describe('a pendência se encerra sozinha quando a causa deixa de existir', () =
 
 describe('importar escala não sobrescreve em silêncio', () => {
   it('a prévia mostra o que mudaria, sem gravar', async () => {
+    /* Esta é a escala-dia MANUAL (folga, alteração declarada) — não a operacional importada da
+     * planilha, que tem prévia própria em escalaOperacional.test.js. */
+    await req('PUT', T('/escalas-dia'), {
+      token: A.token,
+      corpo: {
+        colaborador: 'Previa Silva', data: '2026-08-22', situacao: 'trabalha',
+        marcacoes: ['07:00', '11:00', '12:00', '16:00'], cargaPrevistaMin: 480,
+      },
+    });
+
     const r = await req('POST', T('/escalas-dia/importacao/previa'), {
       token: A.token,
       corpo: {
         linhas: [{
-          colaborador: 'Elias Novo', data: '2026-08-22', situacao: 'trabalha',
+          colaborador: 'Previa Silva', data: '2026-08-22', situacao: 'trabalha',
           marcacoes: ['07:00', '11:00', '12:00', '17:00'], cargaPrevistaMin: 480,
         }],
       },
@@ -569,9 +582,9 @@ describe('importar escala não sobrescreve em silêncio', () => {
     expect(item.anterior.faixa).toBe('07:00–11:00 · 12:00–16:00');
     expect(item.faixa).toBe('07:00–11:00 · 12:00–17:00');
 
-    /* E nada foi gravado. */
-    const atual = await req('GET', T('/referencia/2026-08-22/Elias Novo'), { token: A.token });
-    expect(atual.corpo.faixa).toBe('07:00–11:00 · 12:00–16:00');
+    /* E nada foi gravado: a escala-dia continua a anterior. */
+    const atual = await req('GET', T('/escalas-dia?data=2026-08-22&busca=Previa'), { token: A.token });
+    expect(atual.corpo[0].faixa).toBe('07:00–11:00 · 12:00–16:00');
   });
 
   it('linha com horário inválido é recusada, e o resto entra', async () => {

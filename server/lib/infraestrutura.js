@@ -28,6 +28,7 @@ export const TABELAS = [
      com FOREIGN KEY e revelou que o backup vinha perdendo dado. */
   'horarios_padrao', 'horarios_padrao_historico',
   'escala_importacoes', 'escalas_dia', 'escalas_historico',
+  'escala_servicos', 'escala_servicos_historico',
   'he_ocorrencias', 'he_historico',
   /* Antes de `pendings`, que referencia a análise. */
   'jornada_analises',

@@ -143,27 +143,10 @@ export function ultimaSaida(marcacoes) {
 
 /* ---------------------------------------------------------------- resolução da referência */
 
-function referenciaDeEscala(linha) {
-  const marcacoes = JSON.parse(linha.marcacoes_json || '[]');
-  return {
-    tipo: TIPO_ESCALA,
-    rotulo: ROTULO_REFERENCIA[TIPO_ESCALA],
-    id: linha.id,
-    situacao: linha.situacao,
-    marcacoes,
-    faixa: faixaLegivel(marcacoes),
-    entradaPrevista: primeiraEntrada(marcacoes),
-    saidaPrevista: ultimaSaida(marcacoes),
-    cargaPrevistaMin: linha.carga_prevista_min ?? null,
-    extraMin: linha.extra_min ?? null,
-    turno: linha.turno ?? '',
-    setor: linha.setor ?? '',
-    unidade: linha.unidade ?? '',
-    observacao: linha.observacao ?? '',
-    origem: linha.origem ?? '',
-    vigencia: null,
-  };
-}
+/* NÃO existe mais `referenciaDeEscala`.
+ *
+ * A escala operacional descreve SERVIÇOS, não jornada — ver o comentário em `resolverReferencia`.
+ * A única referência trabalhista é o horário padrão vigente. */
 
 function referenciaDePadrao(linha) {
   const marcacoes = JSON.parse(linha.marcacoes_json || '[]');
@@ -206,25 +189,38 @@ export function referenciaAusente(motivo = 'Nenhuma escala para o dia e nenhum h
   };
 }
 
-/* A precedência, em uma função.
+/* A referência TRABALHISTA de um colaborador numa data.
  *
- * `db` permite rodar dentro de uma transação (a sincronização de HE resolve a referência de vários
- * colaboradores dentro da mesma transação do dia). Fora dela, usa o acesso global. */
+ * MUDANÇA CONCEITUAL DESTA FASE — leia antes de mexer aqui.
+ *
+ * Esta função já resolveu "escala do dia, senão horário padrão". Não resolve mais, e a razão não é
+ * estética: a escala real da operação não descreve jornada. Ela descreve SERVIÇOS — em média 4,3
+ * por motorista por dia, do primeiro às 05:40 ao último às 22:00. Usar o primeiro como entrada e o
+ * último como saída produzia 16h20 de "jornada prevista" e fazia a hora extra verdadeira
+ * desaparecer dentro dela.
+ *
+ * Agora:
+ *   1. horário padrão VIGENTE naquela data → referência trabalhista;
+ *   2. não existe                          → "referência não encontrada".
+ *
+ * A escala operacional continua existindo, em `escala_servicos`, e aparece como CONTEXTO ao lado
+ * da ocorrência. Ela nunca fornece horário de jornada.
+ *
+ * A ÚNICA coisa que `escalas_dia` ainda decide é `situacao` — folga e ausência programada. Isso é
+ * uma declaração HUMANA explícita ("este dia não tem jornada"), não uma inferência a partir de
+ * horários operacionais, e por isso sobrevive. Ela entra sem marcações: mesmo numa folga, a
+ * referência de HORÁRIO continua sendo o padrão.
+ *
+ * `db` permite rodar dentro de uma transação. Fora dela, usa o acesso global. */
 export async function resolverReferencia(tenantId, colaboradorChave, data, db = null) {
   const um = db ? db.consultarUm.bind(db) : consultarUm;
 
-  const escala = await um(
-    `SELECT id, situacao, marcacoes_json, carga_prevista_min, extra_min, turno, setor, unidade,
-            observacao, origem
-       FROM escalas_dia
-      WHERE tenant_id = ? AND colaborador_chave = ? AND data = ?`,
+  const declarado = await um(
+    `SELECT situacao FROM escalas_dia
+      WHERE tenant_id = ? AND colaborador_chave = ? AND data = ?
+        AND situacao IN ('folga', 'ausencia_programada')`,
     [tenantId, colaboradorChave, data],
   );
-
-  /* Uma escala EXISTE mesmo quando diz "folga": nesse caso a referência do dia é justamente a
-   * ausência de jornada programada, e trabalhar nela é a divergência mais grave que existe aqui.
-   * Cair no padrão neste ponto apagaria essa informação. */
-  if (escala) return referenciaDeEscala(escala);
 
   const padrao = await um(
     `SELECT id, marcacoes_json, carga_prevista_min, extra_min, vigencia_inicio, vigencia_fim,
@@ -241,7 +237,16 @@ export async function resolverReferencia(tenantId, colaboradorChave, data, db = 
   /* ORDER BY vigencia_inicio DESC: se por erro de cadastro houver duas vigências cobrindo a mesma
    * data, vale a mais recente — e o conflito aparece nos alertas de qualidade, não aqui. Escolher
    * caladamente uma das duas sem sinalizar seria o comportamento errado. */
-  if (padrao) return referenciaDePadrao(padrao);
+  if (padrao) {
+    const ref = referenciaDePadrao(padrao);
+    /* Folga declarada muda a SITUAÇÃO do dia, nunca os horários: os horários continuam sendo os do
+     * padrão vigente, e é contra eles que qualquer comparação acontece. */
+    return declarado ? { ...ref, situacao: declarado.situacao } : ref;
+  }
+
+  if (declarado) {
+    return { ...referenciaAusente('Dia declarado sem jornada, e sem horário padrão vigente nesta data.'), situacao: declarado.situacao };
+  }
 
   return referenciaAusente();
 }
@@ -257,17 +262,19 @@ export async function resolverReferenciasDoDia(tenantId, chaves, data, db = null
 
   const marcadores = unicas.map(() => '?').join(', ');
 
-  const escalas = await todos(
-    `SELECT id, colaborador_chave, situacao, marcacoes_json, carga_prevista_min, extra_min,
-            turno, setor, unidade, observacao, origem
-       FROM escalas_dia
-      WHERE tenant_id = ? AND data = ? AND colaborador_chave IN (${marcadores})`,
+  /* Só a SITUAÇÃO declarada — folga e ausência programada. Nenhum horário vem daqui.
+   * Ver o comentário longo em `resolverReferencia`: a escala do dia deixou de ser referência de
+   * jornada nesta fase, porque a escala real descreve serviços, não jornada. */
+  const declaradas = await todos(
+    `SELECT colaborador_chave, situacao FROM escalas_dia
+      WHERE tenant_id = ? AND data = ? AND situacao IN ('folga', 'ausencia_programada')
+        AND colaborador_chave IN (${marcadores})`,
     [tenantId, data, ...unicas],
   );
-  for (const e of escalas) mapa.set(e.colaborador_chave, referenciaDeEscala(e));
+  const situacaoDe = new Map(declaradas.map((d) => [d.colaborador_chave, d.situacao]));
 
-  const faltam = unicas.filter((c) => !mapa.has(c));
-  if (faltam.length) {
+  const faltam = unicas;
+  {
     const m2 = faltam.map(() => '?').join(', ');
     const padroes = await todos(
       `SELECT id, colaborador_chave, marcacoes_json, carga_prevista_min, extra_min,
@@ -284,6 +291,13 @@ export async function resolverReferenciasDoDia(tenantId, chaves, data, db = null
   }
 
   for (const c of unicas) if (!mapa.has(c)) mapa.set(c, referenciaAusente());
+
+  /* A situação declarada entra por cima, sem tocar nos horários. */
+  for (const [chave, situacao] of situacaoDe) {
+    const ref = mapa.get(chave);
+    if (ref) mapa.set(chave, { ...ref, situacao });
+  }
+
   return mapa;
 }
 
@@ -392,16 +406,6 @@ export function compararComReferencia(referencia, marcacoesReais, opcoes = {}) {
       detalhe: 'Havia jornada programada e não há ponto registrado no dia.',
     }));
     return achados;
-  }
-
-  /* Escala extra não é um erro: é contexto. Entra na lista para que a jornada apareça marcada como
-   * trabalho fora do regime habitual — inclusive quando o horário bate certinho com o programado. */
-  if (referencia.situacao === 'extra') {
-    achados.push(item(DIVERGENCIAS.ESCALA_EXTRA, {
-      previsto: referencia.faixa,
-      realizado: faixaLegivel(reais),
-      detalhe: 'O dia foi programado como escala extra.',
-    }));
   }
 
   /* Jornada incompleta: abriu e não fechou. Diferente de "registros incompatíveis" (que é

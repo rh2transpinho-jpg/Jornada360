@@ -23,6 +23,8 @@ import * as he from '../repositories/heRepository.js';
 import * as escalas from '../repositories/escalaRepository.js';
 import * as padroes from '../repositories/padraoRepository.js';
 import * as analises from '../repositories/analiseRepository.js';
+import * as servicos from '../repositories/escalaServicoRepository.js';
+import * as importacaoEscala from '../services/importacaoEscala.js';
 import * as processamento from '../services/processamento.js';
 import * as resumos from '../services/resumos.js';
 import * as mensagens from '../services/mensagemColaborador.js';
@@ -681,6 +683,67 @@ tenantRouter.post('/escalas-dia/importacao', exigirPermissao(P.CONFIG_ESCREVER),
   res.json({ ...r, reprocesso });
 }));
 
+/* ---------------------------------------------------------------- escala operacional */
+
+/* Os serviços que uma pessoa vai OPERAR num dia. Não é jornada — ver escalaServicoRepository. */
+
+tenantRouter.get('/servicos', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await servicos.listar(req.tenantId, req.query));
+}));
+
+tenantRouter.get('/servicos/opcoes', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await servicos.opcoesDeFiltro(req.tenantId));
+}));
+
+tenantRouter.get('/servicos/datas', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await servicos.datasComEscala(req.tenantId));
+}));
+
+tenantRouter.get('/servicos/panorama/:data', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await servicos.panoramaDoDia(req.tenantId, req.params.data));
+}));
+
+/* A consulta que a operação faz o tempo todo: "o que o Ademar faz hoje?" */
+tenantRouter.get('/servicos/:data/:colaborador', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  const lista = await servicos.programacaoDoDia(req.tenantId, req.params.colaborador, req.params.data);
+  res.json({
+    data: req.params.data,
+    colaborador: req.params.colaborador,
+    total: lista.length,
+    servicos: lista,
+    /* O horário padrão vigente vai junto, IDENTIFICADO COMO OUTRA FONTE. As duas coisas na mesma
+     * resposta e com nomes diferentes é o que impede alguém de ler a escala como jornada. */
+    referenciaTrabalhista: await resolverReferencia(
+      req.tenantId, he.chaveColaborador(req.params.colaborador), req.params.data,
+    ),
+  });
+}));
+
+tenantRouter.get('/servicos/item/:id/historico', exigirPermissao(P.CONFIG_LER), rota(async (req, res) => {
+  res.json(await servicos.historico(req.tenantId, req.params.id));
+}));
+
+/* Prévia da importação: o que aconteceria, sem gravar nada. */
+tenantRouter.post('/servicos/importacao/previa', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  res.json(await importacaoEscala.prever(req.tenantId, req.body?.servicos ?? []));
+}));
+
+tenantRouter.post('/servicos/importacao', exigirPermissao(P.CONFIG_ESCREVER), rota(async (req, res) => {
+  const r = await importacaoEscala.confirmar(
+    req.tenantId, req.body?.servicos ?? [], req.usuario,
+    { arquivo: req.body?.arquivo ?? '', formato: req.body?.formato ?? 'xlsx' },
+  );
+
+  auditar(req, {
+    entidade: 'Escala operacional',
+    acao: 'Importação de escala',
+    valorNovo: `${r.novos} novo(s), ${r.trocados} troca(s) de motorista, ${r.semMudanca} sem mudança`,
+    motivo: req.body?.arquivo ?? '',
+  });
+
+  res.json(r);
+}));
+
 /* ---------------------------------------------------------------- análise e fila */
 
 tenantRouter.get('/analises', exigirPermissao(P.DADOS_LER), rota(async (req, res) => {
@@ -697,16 +760,29 @@ tenantRouter.get('/analises/:id/explicacao', exigirPermissao(P.DADOS_LER), rota(
 
   const reincidencia = await analises.reincidenciaDe(req.tenantId, a.colaboradorChave, { ate: a.data });
 
+  /* CONTEXTO OPERACIONAL — separado, e com nome próprio.
+   *
+   * Os serviços do dia entram na explicação para responder "o que estava programado para essa
+   * pessoa quando a divergência aconteceu?". Eles NÃO são referência de jornada, e a resposta
+   * nunca os apresenta como horário previsto: uma rota às 14:30 não é saída prevista. */
+  const doDia = await servicos.programacaoDoDia(req.tenantId, a.colaborador, a.data);
+
   res.json({
     ...a,
     reincidencia,
+    contextoOperacional: {
+      total: doDia.length,
+      servicos: doDia,
+      observacao: doDia.length
+        ? 'Horários operacionais: dizem quando a rota acontece, não quando a jornada começa ou termina.'
+        : 'Nenhum serviço importado para esta pessoa nesta data.',
+    },
     /* A explicação em uma frase, montada no servidor para que a interface não produza uma segunda
      * versão do mesmo texto. */
-    porQue: a.referenciaTipo === 'escala'
-      ? `A jornada foi comparada contra a ESCALA do dia (${a.referenciaHorarios})${a.padraoHorarios ? `, e não contra o horário padrão (${a.padraoHorarios}), porque existe escala específica para esta data` : ''}.`
-      : a.referenciaTipo === 'padrao'
-        ? `Não havia escala específica para esta data, então a jornada foi comparada contra o HORÁRIO PADRÃO vigente (${a.referenciaHorarios}).`
-        : 'Não havia escala do dia nem horário padrão vigente nesta data: não há referência para comparar o ponto.',
+    porQue: a.referenciaTipo === 'padrao'
+      ? `A jornada foi comparada contra o HORÁRIO PADRÃO vigente (${a.referenciaHorarios}), que é a referência trabalhista.`
+        + (doDia.length ? ` A escala operacional do dia (${doDia.length} serviço(s)) é contexto e não define horário de jornada.` : '')
+      : 'Não há horário padrão vigente nesta data: sem referência trabalhista, não é possível concluir sobre a jornada.',
   });
 }));
 

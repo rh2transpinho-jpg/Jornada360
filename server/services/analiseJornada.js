@@ -14,15 +14,22 @@
  * Não inventa regra trabalhista. A detecção de divergência é `referenciaJornada.compararComReferencia`,
  * que usa a tolerância JÁ configurada da empresa. O cálculo de hora extra continua sendo do motor
  * (`he1min`) e a classificação de excedente continua sendo `excedente = HE − extra previsto`, a
- * mesma conta que `heEngineCore.reclassificar` sempre fez. O que muda nesta fase é DE ONDE vem o
- * "extra previsto": antes só da planilha de padrão, agora da escala do dia quando ela existe.
+ * mesma conta que `heEngineCore.reclassificar` sempre fez.
+ *
+ * A REFERÊNCIA TRABALHISTA É O HORÁRIO PADRÃO VIGENTE — e só ele.
+ *
+ * Houve uma fase em que a escala do dia vencia o padrão. Foi revertido: a escala real da operação
+ * descreve SERVIÇOS (4,3 por motorista por dia, do primeiro às 05:40 ao último às 22:00), não
+ * jornada. Derivar entrada e saída dela produzia 16h de jornada prevista e fazia a hora extra
+ * verdadeira desaparecer. A escala entra aqui apenas como CONTEXTO — `servicosNoDia` — e não
+ * participa de conta nenhuma.
  *
  * A GRAVIDADE É DECLARATIVA
  * -------------------------
  * `GRAVIDADE` abaixo é a única tabela que decide o que é crítico. Espalhar isso em `if`s pela
  * classificação e pela priorização produziria duas opiniões sobre o mesmo caso. */
 import {
-  DIVERGENCIAS, ROTULO_DIVERGENCIA, TIPO_AUSENTE, TIPO_ESCALA, TIPO_PADRAO,
+  DIVERGENCIAS, ROTULO_DIVERGENCIA, TIPO_AUSENTE, TIPO_PADRAO,
   compararComReferencia, duracaoMarcacoes, faixaLegivel, marcacoesDeTexto,
   resolverReferenciasDoDia,
 } from './referenciaJornada.js';
@@ -60,9 +67,9 @@ export const GRAVIDADE = {
   [DIVERGENCIAS.JORNADA_DIFERENTE]: 'atencao',
   [DIVERGENCIAS.HE_POTENCIAL]: 'atencao',
 
-  /* Escala extra é contexto, não problema: um dia extra com horário batendo certinho continua OK.
-   * Marcar como atenção encheria a fila de dias corretos — o oposto do que esta fase existe para
-   * fazer. */
+  /* `escala_extra` não é mais produzido: a situação vinha de `escalas_dia`, que deixou de ser
+   * referência de jornada. O rótulo continua no catálogo para que análises antigas gravadas com
+   * ele continuem legíveis. */
   [DIVERGENCIAS.ESCALA_EXTRA]: 'ok',
 };
 
@@ -136,6 +143,7 @@ export function marcacoesDoItem(item) {
 export async function analisarDiaCompleto(tenantId, dateKey, snapshot, opcoes = {}) {
   const {
     toleranciaMin = 0, intervaloMinimoMin = 0, db = null, reincidencias = new Map(),
+    servicosPorColaborador = new Map(),
   } = opcoes;
 
   const itens = snapshot?.items ?? [];
@@ -182,7 +190,7 @@ export async function analisarDiaCompleto(tenantId, dateKey, snapshot, opcoes = 
         diferencaMin: excedenteMin,
         detalhe: extraPrevisto === null
           ? 'Há hora extra e nenhuma referência informa quanto já era previsto.'
-          : `Excedeu em ${excedenteMin} min o que a ${referencia.tipo === TIPO_ESCALA ? 'escala do dia' : 'jornada padrão'} previa.`,
+          : `Excedeu em ${excedenteMin} min o que o horário padrão vigente previa.`,
       });
     }
 
@@ -199,6 +207,10 @@ export async function analisarDiaCompleto(tenantId, dateKey, snapshot, opcoes = 
       heMin,
       excedenteMin,
       pontoMarcacoes: faixaLegivel(reais) || reais.join(' '),
+      /* CONTEXTO OPERACIONAL, e só isso: quantos serviços a pessoa tinha programados naquele dia.
+       * Não entra em nenhuma conta de jornada — aparece na explicação da ocorrência, para quem
+       * for analisar saber o que estava programado quando a divergência aconteceu. */
+      servicosNoDia: servicosPorColaborador.get(chave) ?? 0,
       jornadaRealizadaMin: duracaoMarcacoes(reais).totalMin,
       prioridade: prioridadeDe({
         classe,
@@ -242,7 +254,6 @@ export function resumirAnalises(analises) {
       .sort((a, b) => b.total - a.total),
     heTotalMin: analises.reduce((s, a) => s + Math.max(a.heMin, 0), 0),
     referencias: {
-      escala: analises.filter((a) => a.referencia.tipo === TIPO_ESCALA).length,
       padrao: analises.filter((a) => a.referencia.tipo === TIPO_PADRAO).length,
       ausente: analises.filter((a) => a.referencia.tipo === TIPO_AUSENTE).length,
     },

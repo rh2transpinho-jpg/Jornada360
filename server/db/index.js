@@ -122,6 +122,7 @@ export const MIGRACOES = [
   { versao: 6, arquivo: '006_infraestrutura.sql' },
   { versao: 7, arquivo: '007_escalas_padroes.sql' },
   { versao: 8, arquivo: '008_analise_automatica.sql' },
+  { versao: 9, arquivo: '009_escala_operacional.sql' },
 ];
 
 /* Executa o schema. É idempotente (todo CREATE usa IF NOT EXISTS) e registra a versão aplicada,
