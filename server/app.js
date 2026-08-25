@@ -53,9 +53,23 @@ export function criarApp(configExterna) {
    * DIAGNOSTICAR o banco. Bloqueá-la quando o banco falha significa que a ferramenta de
    * diagnóstico só funciona quando não há o que diagnosticar. Ela já trata a falha por dentro e
    * responde 503 dizendo qual componente caiu — que é a informação que se precisa às 3h da manhã. */
+  /* E O FRONTEND TAMBÉM FICA DE FORA — descoberto em produção, pela segunda vez.
+   *
+   * A trava valia para TODA rota que não fosse saúde ou prontidão, inclusive `/`. Quando o banco
+   * ficou indisponível (o Turso passou a recusar leituras por cota), a URL pública parou de servir
+   * a interface e passou a devolver `{"erro":"erro_interno"}` — um JSON cru, no navegador, no
+   * lugar do sistema.
+   *
+   * Isso era desnecessário: `index.html`, JS e CSS são arquivos estáticos que não tocam o banco.
+   * Segurá-los atrás da migração transformou uma indisponibilidade de dados numa indisponibilidade
+   * total, e tirou da pessoa até a tela que sabe explicar que o servidor está fora.
+   *
+   * A trava passa a valer só para `/api/` — que é onde ela sempre fez sentido. A aplicação já
+   * trata erro de API e mostra "Servidor indisponível" com botão de tentar de novo. */
   const SEM_TRAVA = new Set(['/api/saude', '/api/prontidao']);
 
   app.use((req, _res, proximo) => {
+    if (!req.path.startsWith('/api/')) return proximo();
     if (SEM_TRAVA.has(req.path)) return proximo();
     garantirMigrado().then(() => proximo(), proximo);
   });
